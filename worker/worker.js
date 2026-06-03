@@ -124,15 +124,29 @@ const HTML_CONTENT = `<!DOCTYPE html>
                 </div>
                 <div class="mb-4">
                     <label class="block text-gray-700 text-sm font-bold mb-2">保号周期 (单位：天，必填)</label>
-                    <input type="number" id="simCycle" required placeholder="例如：180" class="w-full px-4 py-2 rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white/80">
+                    <input type="number" id="simCycle" required placeholder="例如：180" class="w-full px-4 py-2 rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white/80" oninput="autoCalcExpireDate()">
                 </div>
                 <div class="mb-4">
                     <label class="block text-gray-700 text-sm font-bold mb-2">备注 / 保号要求 (选填)</label>
                     <input type="text" id="simRemark" placeholder="例如：发送短信到某号码 或 充值5元" class="w-full px-4 py-2 rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white/80">
                 </div>
-                <div class="mb-6">
+                <div class="mb-4">
                     <label class="block text-gray-700 text-sm font-bold mb-2">本次到期日 (必填)</label>
                     <input type="date" id="simExpire" required class="w-full px-4 py-2 rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white/80">
+                    <p class="text-xs text-gray-400 mt-1" id="expireHint"></p>
+                </div>
+                <div class="mb-6 flex items-center justify-between bg-gradient-to-r from-blue-50/80 to-indigo-50/80 rounded-xl px-4 py-3.5 border border-blue-100/60">
+                    <div class="flex items-center gap-2">
+                        <i class="fa-solid fa-arrows-rotate text-blue-500"></i>
+                        <div>
+                            <span class="text-sm font-bold text-gray-700">到期后自动延期</span>
+                            <p class="text-[11px] text-gray-400 mt-0.5">开启后，到期当天系统自动续延一个保号周期</p>
+                        </div>
+                    </div>
+                    <label class="relative inline-flex items-center cursor-pointer flex-shrink-0 ml-3">
+                        <input type="checkbox" id="simAutoRenew" class="sr-only peer">
+                        <div class="w-11 h-6 bg-gray-300 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-blue-400 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600 shadow-inner"></div>
+                    </label>
                 </div>
                 <button type="submit" id="submitBtn" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-4 rounded-xl shadow-md transition-colors">
                     保存并监控
@@ -405,6 +419,9 @@ const HTML_CONTENT = `<!DOCTYPE html>
                 // 渲染备注区域
                 const remarkHTML = sim.remark ? \`<div class="bg-blue-50/60 rounded-lg p-2.5 mb-4 text-xs text-gray-700 border border-blue-100/60 break-words leading-relaxed"><i class="fa-regular fa-comment-dots mr-1.5 text-blue-400"></i>\${sim.remark}</div>\` : '';
 
+                // 自动延期标签
+                const autoRenewBadge = sim.autoRenew ? '<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-100 text-indigo-700 whitespace-nowrap flex-shrink-0"><i class="fa-solid fa-arrows-rotate mr-0.5"></i>自动延期</span>' : '';
+
                 const cardHTML = \`
                     <div class="glass-card rounded-2xl p-6 relative overflow-hidden group flex flex-col h-full">
                         
@@ -432,10 +449,13 @@ const HTML_CONTENT = `<!DOCTYPE html>
                                 <span class="text-lg">\${flagEmoji}</span>
                                 <span class="truncate">\${sim.number || '未登记号码'}</span>
                             </p>
-                            <!-- 状态标签加入 flex-shrink-0 绝对防挤压变形 -->
-                            <span class="px-2.5 py-1 rounded-full text-[11px] font-bold shadow-sm whitespace-nowrap flex-shrink-0 \${badgeClass}">
-                                <i class="fa-solid \${icon} mr-1"></i>\${statusText}
-                            </span>
+                            <!-- 状态标签与自动延期标签 -->
+                            <div class="flex items-center gap-1.5 flex-shrink-0">
+                                \${autoRenewBadge}
+                                <span class="px-2.5 py-1 rounded-full text-[11px] font-bold shadow-sm whitespace-nowrap flex-shrink-0 \${badgeClass}">
+                                    <i class="fa-solid \${icon} mr-1"></i>\${statusText}
+                                </span>
+                            </div>
                         </div>
                         
                         <!-- 备注/保号要求区域 -->
@@ -496,7 +516,8 @@ const HTML_CONTENT = `<!DOCTYPE html>
                 number: document.getElementById('simNumber').value,
                 cycle: parseInt(document.getElementById('simCycle').value) || 0,
                 remark: document.getElementById('simRemark').value,
-                expireDate: document.getElementById('simExpire').value
+                expireDate: document.getElementById('simExpire').value,
+                autoRenew: document.getElementById('simAutoRenew').checked
             };
 
             if (editingId) {
@@ -578,12 +599,29 @@ const HTML_CONTENT = `<!DOCTYPE html>
             }
         }
 
+        function autoCalcExpireDate() {
+            const cycleVal = parseInt(document.getElementById('simCycle').value);
+            if (cycleVal && cycleVal > 0) {
+                const d = new Date();
+                d.setDate(d.getDate() + cycleVal);
+                const yyyy = d.getFullYear();
+                const mm = String(d.getMonth() + 1).padStart(2, '0');
+                const dd = String(d.getDate()).padStart(2, '0');
+                document.getElementById('simExpire').value = yyyy + '-' + mm + '-' + dd;
+                document.getElementById('expireHint').innerHTML = '<i class="fa-solid fa-wand-magic-sparkles mr-1"></i>已根据保号周期自动计算：今天 + ' + cycleVal + ' 天';
+            } else {
+                document.getElementById('expireHint').innerHTML = '';
+            }
+        }
+
         function openModal() {
             editingId = null;
             document.getElementById('modalTitle').innerHTML = '<i class="fa-solid fa-file-circle-plus text-blue-600"></i> 新增 eSIM';
             const modal = document.getElementById('addModal');
             const content = document.getElementById('modalContent');
-            document.getElementById('addForm').reset(); 
+            document.getElementById('addForm').reset();
+            document.getElementById('simAutoRenew').checked = false;
+            document.getElementById('expireHint').innerHTML = '';
             
             modal.classList.remove('hidden');
             setTimeout(() => {
@@ -604,6 +642,8 @@ const HTML_CONTENT = `<!DOCTYPE html>
             document.getElementById('simCycle').value = sim.cycle || '';
             document.getElementById('simRemark').value = sim.remark || '';
             document.getElementById('simExpire').value = sim.expireDate || '';
+            document.getElementById('simAutoRenew').checked = !!sim.autoRenew;
+            document.getElementById('expireHint').innerHTML = '';
 
             const modal = document.getElementById('addModal');
             const content = document.getElementById('modalContent');
@@ -765,7 +805,7 @@ export default {
 
       if (request.method === "PUT") {
         try {
-          const { id, expireDate, name, number, cycle, remark } = await request.json();
+          const { id, expireDate, name, number, cycle, remark, autoRenew } = await request.json();
           let found = false;
           esims = esims.map(sim => {
             if (sim.id === id) { 
@@ -774,7 +814,8 @@ export default {
                 if (name !== undefined) sim.name = name;
                 if (number !== undefined) sim.number = number;
                 if (cycle !== undefined) sim.cycle = cycle;
-                if (remark !== undefined) sim.remark = remark; // 新增备注保存
+                if (remark !== undefined) sim.remark = remark;
+                if (autoRenew !== undefined) sim.autoRenew = autoRenew;
                 return sim; 
             }
             return sim;
@@ -816,6 +857,8 @@ export default {
 
     let messages = [];
 
+    let dataChanged = false;
+
     esims.forEach(sim => {
       const expDate = new Date(sim.expireDate);
       expDate.setUTCHours(0, 0, 0, 0); 
@@ -824,7 +867,20 @@ export default {
       const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
       
       const cycleText = sim.cycle ? `${sim.cycle}天` : '未设置';
-      const remarkText = sim.remark ? `\n📝 备注: ${sim.remark}` : ''; // 推送消息中加入备注
+      const remarkText = sim.remark ? `\n📝 备注: ${sim.remark}` : '';
+
+      // 自动延期逻辑：到期当天（或已过期）且开启了自动延期
+      if (diffDays <= 0 && sim.autoRenew && sim.cycle && sim.cycle > 0) {
+        const newDate = new Date(localToday.getTime());
+        newDate.setUTCDate(newDate.getUTCDate() + parseInt(sim.cycle));
+        const y = newDate.getUTCFullYear();
+        const m = String(newDate.getUTCMonth() + 1).padStart(2, '0');
+        const d = String(newDate.getUTCDate()).padStart(2, '0');
+        sim.expireDate = y + '-' + m + '-' + d;
+        dataChanged = true;
+        messages.push(`🔄 【eSIM 自动延期通知】\n📱 卡名: ${sim.name}\n📞 号码: ${sim.number || '未填写'}\n🔄 周期: ${cycleText}\n📅 新到期日: ${sim.expireDate}${remarkText}\n✅ 系统已自动顺延一个保号周期。`);
+        return;
+      }
 
       if (diffDays <= 15 && diffDays > 0) {
         messages.push(`⚠️ 【eSIM 保号提醒】\n📱 卡名: ${sim.name}\n📞 号码: ${sim.number || '未填写'}\n🔄 周期: ${cycleText}\n📅 到期: ${sim.expireDate}${remarkText}\n⏳ 剩余: ${diffDays} 天！\n👉 请尽快处理续期！`);
@@ -834,6 +890,11 @@ export default {
         messages.push(`❌ 【eSIM 停机警告】\n📱 卡名: ${sim.name} 已过期 ${Math.abs(diffDays)} 天。${remarkText}`);
       }
     });
+
+    // 如果有自动延期操作，将更新后的数据写回 KV
+    if (dataChanged) {
+      await env.ESIM_DB.put("esim_list", JSON.stringify(esims));
+    }
 
     if (messages.length > 0 && tgToken && tgChat) {
       const text = messages.join("\n\n---\n\n");

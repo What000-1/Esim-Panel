@@ -123,6 +123,11 @@ const HTML_CONTENT = `<!DOCTYPE html>
                     <input type="text" id="simNumber" placeholder="例如：+1 234 567 8900" class="w-full px-4 py-2 rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white/80">
                 </div>
                 <div class="mb-4">
+                    <label class="block text-gray-700 text-sm font-bold mb-2">开始日期 (必填)</label>
+                    <input type="date" id="simStartDate" required class="w-full px-4 py-2 rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white/80" onchange="autoCalcExpireDate()">
+                    <p class="text-xs text-gray-400 mt-1">默认为今天，可自行修改</p>
+                </div>
+                <div class="mb-4">
                     <label class="block text-gray-700 text-sm font-bold mb-2">保号周期 (单位：天，必填)</label>
                     <input type="number" id="simCycle" required placeholder="例如：180" class="w-full px-4 py-2 rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white/80" oninput="autoCalcExpireDate()">
                 </div>
@@ -514,6 +519,7 @@ const HTML_CONTENT = `<!DOCTYPE html>
             const payload = {
                 name: document.getElementById('simName').value,
                 number: document.getElementById('simNumber').value,
+                startDate: document.getElementById('simStartDate').value,
                 cycle: parseInt(document.getElementById('simCycle').value) || 0,
                 remark: document.getElementById('simRemark').value,
                 expireDate: document.getElementById('simExpire').value,
@@ -601,17 +607,24 @@ const HTML_CONTENT = `<!DOCTYPE html>
 
         function autoCalcExpireDate() {
             const cycleVal = parseInt(document.getElementById('simCycle').value);
-            if (cycleVal && cycleVal > 0) {
-                const d = new Date();
+            const startDateStr = document.getElementById('simStartDate').value;
+            if (cycleVal && cycleVal > 0 && startDateStr) {
+                const parts = startDateStr.split('-');
+                const d = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
                 d.setDate(d.getDate() + cycleVal);
                 const yyyy = d.getFullYear();
                 const mm = String(d.getMonth() + 1).padStart(2, '0');
                 const dd = String(d.getDate()).padStart(2, '0');
                 document.getElementById('simExpire').value = yyyy + '-' + mm + '-' + dd;
-                document.getElementById('expireHint').innerHTML = '<i class="fa-solid fa-wand-magic-sparkles mr-1"></i>已根据保号周期自动计算：今天 + ' + cycleVal + ' 天';
+                document.getElementById('expireHint').innerHTML = '<i class="fa-solid fa-wand-magic-sparkles mr-1"></i>已自动计算：' + startDateStr + ' + ' + cycleVal + ' 天';
             } else {
                 document.getElementById('expireHint').innerHTML = '';
             }
+        }
+
+        function getTodayStr() {
+            const t = new Date();
+            return t.getFullYear() + '-' + String(t.getMonth() + 1).padStart(2, '0') + '-' + String(t.getDate()).padStart(2, '0');
         }
 
         function openModal() {
@@ -620,6 +633,7 @@ const HTML_CONTENT = `<!DOCTYPE html>
             const modal = document.getElementById('addModal');
             const content = document.getElementById('modalContent');
             document.getElementById('addForm').reset();
+            document.getElementById('simStartDate').value = getTodayStr();
             document.getElementById('simAutoRenew').checked = false;
             document.getElementById('expireHint').innerHTML = '';
             
@@ -639,6 +653,7 @@ const HTML_CONTENT = `<!DOCTYPE html>
             
             document.getElementById('simName').value = sim.name || '';
             document.getElementById('simNumber').value = sim.number || '';
+            document.getElementById('simStartDate').value = sim.startDate || getTodayStr();
             document.getElementById('simCycle').value = sim.cycle || '';
             document.getElementById('simRemark').value = sim.remark || '';
             document.getElementById('simExpire').value = sim.expireDate || '';
@@ -672,242 +687,243 @@ const HTML_CONTENT = `<!DOCTYPE html>
 </html>`;
 
 export default {
-  async fetch(request, env, ctx) {
-    const url = new URL(request.url);
-    const path = url.pathname;
-    
-    const corsHeaders = {
-      "Access-Control-Allow-Origin": "*",
-      "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
-      "Access-Control-Allow-Headers": "Content-Type, Authorization",
-    };
+    async fetch(request, env, ctx) {
+        const url = new URL(request.url);
+        const path = url.pathname;
 
-    if (request.method === "OPTIONS") {
-      return new Response(null, { headers: corsHeaders });
-    }
+        const corsHeaders = {
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
+            "Access-Control-Allow-Headers": "Content-Type, Authorization",
+        };
 
-    if (path === "/" || path === "/index.html") {
-      return new Response(HTML_CONTENT, {
-        headers: { "Content-Type": "text/html;charset=UTF-8" }
-      });
-    }
-
-    let tgToken = env.TG_BOT_TOKEN;
-    let tgChat = env.TG_CHAT_ID;
-    
-    try {
-      if (!tgToken) tgToken = await env.ESIM_DB.get("TG_BOT_TOKEN");
-      if (!tgChat) tgChat = await env.ESIM_DB.get("TG_CHAT_ID");
-    } catch (e) {}
-
-    if (path === "/api/auth/send" && request.method === "POST") {
-      try {
-        if (!tgToken || !tgChat) {
-          let missingVars = [];
-          if (!tgToken) missingVars.push("TG_BOT_TOKEN");
-          if (!tgChat) missingVars.push("TG_CHAT_ID");
-          return new Response(JSON.stringify({ 
-              success: false, 
-              message: `环境缺失：缺少 ${missingVars.join(' 和 ')}。请前往 Cloudflare 的 KV 数据库中手动添加这两个键值对即可彻底解决！` 
-          }), { status: 500, headers: corsHeaders });
+        if (request.method === "OPTIONS") {
+            return new Response(null, { headers: corsHeaders });
         }
-        
-        const code = Math.floor(100000 + Math.random() * 900000).toString();
-        
-        await env.ESIM_DB.put("admin_auth_code", code, { expirationTtl: 300 });
-        await env.ESIM_DB.put("admin_auth_attempts", "0", { expirationTtl: 300 }); 
 
-        const text = `🔐 <b>【eSIM 看板安全验证】</b>\n\n有人正在尝试登录您的网页版数据面板。\n\n您的动态登录验证码是：<code>${code}</code>\n\n<i>(该验证码 5 分钟内有效。如非本人操作，请忽略，系统已开启防爆破保护)</i>`;
-        const tgUrl = `https://api.telegram.org/bot${tgToken}/sendMessage`;
-        const tgRes = await fetch(tgUrl, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ chat_id: tgChat, text: text, parse_mode: "HTML" })
+        if (path === "/" || path === "/index.html") {
+            return new Response(HTML_CONTENT, {
+                headers: { "Content-Type": "text/html;charset=UTF-8" }
+            });
+        }
+
+        let tgToken = env.TG_BOT_TOKEN;
+        let tgChat = env.TG_CHAT_ID;
+
+        try {
+            if (!tgToken) tgToken = await env.ESIM_DB.get("TG_BOT_TOKEN");
+            if (!tgChat) tgChat = await env.ESIM_DB.get("TG_CHAT_ID");
+        } catch (e) { }
+
+        if (path === "/api/auth/send" && request.method === "POST") {
+            try {
+                if (!tgToken || !tgChat) {
+                    let missingVars = [];
+                    if (!tgToken) missingVars.push("TG_BOT_TOKEN");
+                    if (!tgChat) missingVars.push("TG_CHAT_ID");
+                    return new Response(JSON.stringify({
+                        success: false,
+                        message: `环境缺失：缺少 ${missingVars.join(' 和 ')}。请前往 Cloudflare 的 KV 数据库中手动添加这两个键值对即可彻底解决！`
+                    }), { status: 500, headers: corsHeaders });
+                }
+
+                const code = Math.floor(100000 + Math.random() * 900000).toString();
+
+                await env.ESIM_DB.put("admin_auth_code", code, { expirationTtl: 300 });
+                await env.ESIM_DB.put("admin_auth_attempts", "0", { expirationTtl: 300 });
+
+                const text = `🔐 <b>【eSIM 看板安全验证】</b>\n\n有人正在尝试登录您的网页版数据面板。\n\n您的动态登录验证码是：<code>${code}</code>\n\n<i>(该验证码 5 分钟内有效。如非本人操作，请忽略，系统已开启防爆破保护)</i>`;
+                const tgUrl = `https://api.telegram.org/bot${tgToken}/sendMessage`;
+                const tgRes = await fetch(tgUrl, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ chat_id: tgChat, text: text, parse_mode: "HTML" })
+                });
+
+                if (tgRes.ok) {
+                    return new Response(JSON.stringify({ success: true }), { headers: corsHeaders });
+                } else {
+                    return new Response(JSON.stringify({ success: false, message: "TG 消息发送失败，可能 Bot 被拉黑或未激活" }), { status: 500, headers: corsHeaders });
+                }
+            } catch (err) {
+                return new Response(JSON.stringify({ success: false, message: err.message }), { status: 500, headers: corsHeaders });
+            }
+        }
+
+        if (path === "/api/auth/verify" && request.method === "POST") {
+            try {
+                const { code } = await request.json();
+                const storedCode = await env.ESIM_DB.get("admin_auth_code");
+
+                let attempts = parseInt(await env.ESIM_DB.get("admin_auth_attempts")) || 0;
+                if (attempts >= 5) {
+                    await env.ESIM_DB.delete("admin_auth_code");
+                    return new Response(JSON.stringify({ success: false, message: "错误次数过多，为保障安全，验证码已强制作废。请重新获取！" }), { status: 403, headers: corsHeaders });
+                }
+
+                if (!storedCode) {
+                    return new Response(JSON.stringify({ success: false, message: "请先获取验证码或验证码已过期" }), { status: 400, headers: corsHeaders });
+                }
+
+                if (code && storedCode === code.toString()) {
+                    const token = crypto.randomUUID();
+                    await env.ESIM_DB.put("session_token_" + token, "valid", { expirationTtl: 2592000 });
+                    await env.ESIM_DB.delete("admin_auth_code");
+                    await env.ESIM_DB.delete("admin_auth_attempts");
+
+                    return new Response(JSON.stringify({ success: true, token: token }), { headers: corsHeaders });
+                } else {
+                    attempts++;
+                    await env.ESIM_DB.put("admin_auth_attempts", attempts.toString(), { expirationTtl: 300 });
+                    await new Promise(resolve => setTimeout(resolve, 1000));
+
+                    return new Response(JSON.stringify({ success: false, message: `验证码错误！剩余尝试次数: ${5 - attempts} 次` }), { status: 401, headers: corsHeaders });
+                }
+            } catch (err) {
+                return new Response(JSON.stringify({ success: false, message: "校验失败" }), { status: 500, headers: corsHeaders });
+            }
+        }
+
+        if (path === "/api/esims") {
+            const reqToken = request.headers.get("Authorization");
+            if (!reqToken) {
+                return new Response(JSON.stringify({ error: "Unauthorized: Missing Token" }), { status: 401, headers: corsHeaders });
+            }
+
+            const isValidSession = await env.ESIM_DB.get("session_token_" + reqToken);
+            if (!isValidSession) {
+                return new Response(JSON.stringify({ error: "Unauthorized: Invalid or Expired Token" }), { status: 401, headers: corsHeaders });
+            }
+
+            let esims;
+            try {
+                esims = await env.ESIM_DB.get("esim_list", { type: "json" });
+                if (!esims) esims = [];
+            } catch (err) {
+                return new Response(JSON.stringify({ error: "KV 未绑定" }), { status: 500, headers: { "Content-Type": "application/json", ...corsHeaders } });
+            }
+
+            if (request.method === "GET") {
+                return new Response(JSON.stringify(esims), { headers: { "Content-Type": "application/json", ...corsHeaders } });
+            }
+
+            if (request.method === "POST") {
+                try {
+                    const newSim = await request.json();
+                    if (!newSim.name || !newSim.expireDate) return new Response(JSON.stringify({ success: false, message: "参数错误" }), { status: 400, headers: corsHeaders });
+                    newSim.id = Date.now().toString();
+                    esims.push(newSim);
+                    await env.ESIM_DB.put("esim_list", JSON.stringify(esims));
+                    return new Response(JSON.stringify({ success: true }), { headers: corsHeaders });
+                } catch (err) { return new Response(JSON.stringify({ success: false }), { status: 400, headers: corsHeaders }); }
+            }
+
+            if (request.method === "PUT") {
+                try {
+                    const { id, expireDate, name, number, startDate, cycle, remark, autoRenew } = await request.json();
+                    let found = false;
+                    esims = esims.map(sim => {
+                        if (sim.id === id) {
+                            found = true;
+                            if (expireDate !== undefined) sim.expireDate = expireDate;
+                            if (name !== undefined) sim.name = name;
+                            if (number !== undefined) sim.number = number;
+                            if (startDate !== undefined) sim.startDate = startDate;
+                            if (cycle !== undefined) sim.cycle = cycle;
+                            if (remark !== undefined) sim.remark = remark;
+                            if (autoRenew !== undefined) sim.autoRenew = autoRenew;
+                            return sim;
+                        }
+                        return sim;
+                    });
+                    if (!found) return new Response(JSON.stringify({ success: false, message: "未找到记录" }), { status: 404, headers: corsHeaders });
+                    await env.ESIM_DB.put("esim_list", JSON.stringify(esims));
+                    return new Response(JSON.stringify({ success: true }), { headers: corsHeaders });
+                } catch (err) { return new Response(JSON.stringify({ success: false }), { status: 400, headers: corsHeaders }); }
+            }
+
+            if (request.method === "DELETE") {
+                try {
+                    const { id } = await request.json();
+                    esims = esims.filter(sim => sim.id !== id);
+                    await env.ESIM_DB.put("esim_list", JSON.stringify(esims));
+                    return new Response(JSON.stringify({ success: true }), { headers: corsHeaders });
+                } catch (err) { return new Response(JSON.stringify({ success: false }), { status: 400, headers: corsHeaders }); }
+            }
+        }
+
+        return new Response("404 Not Found", { status: 404 });
+    },
+
+    async scheduled(event, env, ctx) {
+        let tgToken = env.TG_BOT_TOKEN;
+        let tgChat = env.TG_CHAT_ID;
+        try {
+            if (!tgToken) tgToken = await env.ESIM_DB.get("TG_BOT_TOKEN");
+            if (!tgChat) tgChat = await env.ESIM_DB.get("TG_CHAT_ID");
+        } catch (e) { }
+
+        const esims = await env.ESIM_DB.get("esim_list", { type: "json" });
+        if (!esims || esims.length === 0) return;
+
+        const today = new Date();
+        const offset = 8;
+        const localToday = new Date(today.getTime() + offset * 3600 * 1000);
+        localToday.setUTCHours(0, 0, 0, 0);
+
+        let messages = [];
+
+        let dataChanged = false;
+
+        esims.forEach(sim => {
+            const expDate = new Date(sim.expireDate);
+            expDate.setUTCHours(0, 0, 0, 0);
+
+            const diffTime = expDate - localToday;
+            const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+            const cycleText = sim.cycle ? `${sim.cycle}天` : '未设置';
+            const remarkText = sim.remark ? `\n📝 备注: ${sim.remark}` : '';
+
+            // 自动延期逻辑：到期当天（或已过期）且开启了自动延期
+            if (diffDays <= 0 && sim.autoRenew && sim.cycle && sim.cycle > 0) {
+                const newDate = new Date(localToday.getTime());
+                newDate.setUTCDate(newDate.getUTCDate() + parseInt(sim.cycle));
+                const y = newDate.getUTCFullYear();
+                const m = String(newDate.getUTCMonth() + 1).padStart(2, '0');
+                const d = String(newDate.getUTCDate()).padStart(2, '0');
+                sim.expireDate = y + '-' + m + '-' + d;
+                dataChanged = true;
+                messages.push(`🔄 【eSIM 自动延期通知】\n📱 卡名: ${sim.name}\n📞 号码: ${sim.number || '未填写'}\n🔄 周期: ${cycleText}\n📅 新到期日: ${sim.expireDate}${remarkText}\n✅ 系统已自动顺延一个保号周期。`);
+                return;
+            }
+
+            if (diffDays <= 15 && diffDays > 0) {
+                messages.push(`⚠️ 【eSIM 保号提醒】\n📱 卡名: ${sim.name}\n📞 号码: ${sim.number || '未填写'}\n🔄 周期: ${cycleText}\n📅 到期: ${sim.expireDate}${remarkText}\n⏳ 剩余: ${diffDays} 天！\n👉 请尽快处理续期！`);
+            } else if (diffDays === 0) {
+                messages.push(`🚨 【eSIM 紧急提醒】\n📱 卡名: ${sim.name} 今天到期！${remarkText}`);
+            } else if (diffDays < 0 && Math.abs(diffDays) % 7 === 0) {
+                messages.push(`❌ 【eSIM 停机警告】\n📱 卡名: ${sim.name} 已过期 ${Math.abs(diffDays)} 天。${remarkText}`);
+            }
         });
 
-        if (tgRes.ok) {
-          return new Response(JSON.stringify({ success: true }), { headers: corsHeaders });
-        } else {
-          return new Response(JSON.stringify({ success: false, message: "TG 消息发送失败，可能 Bot 被拉黑或未激活" }), { status: 500, headers: corsHeaders });
-        }
-      } catch (err) {
-        return new Response(JSON.stringify({ success: false, message: err.message }), { status: 500, headers: corsHeaders });
-      }
-    }
-
-    if (path === "/api/auth/verify" && request.method === "POST") {
-      try {
-        const { code } = await request.json();
-        const storedCode = await env.ESIM_DB.get("admin_auth_code");
-        
-        let attempts = parseInt(await env.ESIM_DB.get("admin_auth_attempts")) || 0;
-        if (attempts >= 5) {
-            await env.ESIM_DB.delete("admin_auth_code"); 
-            return new Response(JSON.stringify({ success: false, message: "错误次数过多，为保障安全，验证码已强制作废。请重新获取！" }), { status: 403, headers: corsHeaders });
+        // 如果有自动延期操作，将更新后的数据写回 KV
+        if (dataChanged) {
+            await env.ESIM_DB.put("esim_list", JSON.stringify(esims));
         }
 
-        if (!storedCode) {
-            return new Response(JSON.stringify({ success: false, message: "请先获取验证码或验证码已过期" }), { status: 400, headers: corsHeaders });
+        if (messages.length > 0 && tgToken && tgChat) {
+            const text = messages.join("\n\n---\n\n");
+            const tgUrl = `https://api.telegram.org/bot${tgToken}/sendMessage`;
+            await fetch(tgUrl, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    chat_id: tgChat,
+                    text: text,
+                    parse_mode: "HTML"
+                })
+            });
         }
-        
-        if (code && storedCode === code.toString()) {
-          const token = crypto.randomUUID();
-          await env.ESIM_DB.put("session_token_" + token, "valid", { expirationTtl: 2592000 });
-          await env.ESIM_DB.delete("admin_auth_code");
-          await env.ESIM_DB.delete("admin_auth_attempts"); 
-          
-          return new Response(JSON.stringify({ success: true, token: token }), { headers: corsHeaders });
-        } else {
-          attempts++;
-          await env.ESIM_DB.put("admin_auth_attempts", attempts.toString(), { expirationTtl: 300 });
-          await new Promise(resolve => setTimeout(resolve, 1000)); 
-          
-          return new Response(JSON.stringify({ success: false, message: `验证码错误！剩余尝试次数: ${5 - attempts} 次` }), { status: 401, headers: corsHeaders });
-        }
-      } catch (err) {
-        return new Response(JSON.stringify({ success: false, message: "校验失败" }), { status: 500, headers: corsHeaders });
-      }
     }
-
-    if (path === "/api/esims") {
-      const reqToken = request.headers.get("Authorization");
-      if (!reqToken) {
-        return new Response(JSON.stringify({ error: "Unauthorized: Missing Token" }), { status: 401, headers: corsHeaders });
-      }
-      
-      const isValidSession = await env.ESIM_DB.get("session_token_" + reqToken);
-      if (!isValidSession) {
-        return new Response(JSON.stringify({ error: "Unauthorized: Invalid or Expired Token" }), { status: 401, headers: corsHeaders });
-      }
-
-      let esims;
-      try {
-        esims = await env.ESIM_DB.get("esim_list", { type: "json" });
-        if (!esims) esims = []; 
-      } catch (err) {
-        return new Response(JSON.stringify({ error: "KV 未绑定" }), { status: 500, headers: { "Content-Type": "application/json", ...corsHeaders } });
-      }
-
-      if (request.method === "GET") {
-        return new Response(JSON.stringify(esims), { headers: { "Content-Type": "application/json", ...corsHeaders } });
-      }
-
-      if (request.method === "POST") {
-        try {
-          const newSim = await request.json();
-          if (!newSim.name || !newSim.expireDate) return new Response(JSON.stringify({ success: false, message: "参数错误" }), { status: 400, headers: corsHeaders });
-          newSim.id = Date.now().toString(); 
-          esims.push(newSim);
-          await env.ESIM_DB.put("esim_list", JSON.stringify(esims)); 
-          return new Response(JSON.stringify({ success: true }), { headers: corsHeaders });
-        } catch (err) { return new Response(JSON.stringify({ success: false }), { status: 400, headers: corsHeaders }); }
-      }
-
-      if (request.method === "PUT") {
-        try {
-          const { id, expireDate, name, number, cycle, remark, autoRenew } = await request.json();
-          let found = false;
-          esims = esims.map(sim => {
-            if (sim.id === id) { 
-                found = true; 
-                if (expireDate !== undefined) sim.expireDate = expireDate;
-                if (name !== undefined) sim.name = name;
-                if (number !== undefined) sim.number = number;
-                if (cycle !== undefined) sim.cycle = cycle;
-                if (remark !== undefined) sim.remark = remark;
-                if (autoRenew !== undefined) sim.autoRenew = autoRenew;
-                return sim; 
-            }
-            return sim;
-          });
-          if (!found) return new Response(JSON.stringify({ success: false, message: "未找到记录" }), { status: 404, headers: corsHeaders });
-          await env.ESIM_DB.put("esim_list", JSON.stringify(esims)); 
-          return new Response(JSON.stringify({ success: true }), { headers: corsHeaders });
-        } catch (err) { return new Response(JSON.stringify({ success: false }), { status: 400, headers: corsHeaders }); }
-      }
-
-      if (request.method === "DELETE") {
-        try {
-          const { id } = await request.json();
-          esims = esims.filter(sim => sim.id !== id);
-          await env.ESIM_DB.put("esim_list", JSON.stringify(esims)); 
-          return new Response(JSON.stringify({ success: true }), { headers: corsHeaders });
-        } catch (err) { return new Response(JSON.stringify({ success: false }), { status: 400, headers: corsHeaders }); }
-      }
-    }
-
-    return new Response("404 Not Found", { status: 404 });
-  },
-
-  async scheduled(event, env, ctx) {
-    let tgToken = env.TG_BOT_TOKEN;
-    let tgChat = env.TG_CHAT_ID;
-    try {
-      if (!tgToken) tgToken = await env.ESIM_DB.get("TG_BOT_TOKEN");
-      if (!tgChat) tgChat = await env.ESIM_DB.get("TG_CHAT_ID");
-    } catch (e) {}
-
-    const esims = await env.ESIM_DB.get("esim_list", { type: "json" });
-    if (!esims || esims.length === 0) return; 
-
-    const today = new Date();
-    const offset = 8; 
-    const localToday = new Date(today.getTime() + offset * 3600 * 1000);
-    localToday.setUTCHours(0, 0, 0, 0);
-
-    let messages = [];
-
-    let dataChanged = false;
-
-    esims.forEach(sim => {
-      const expDate = new Date(sim.expireDate);
-      expDate.setUTCHours(0, 0, 0, 0); 
-      
-      const diffTime = expDate - localToday;
-      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-      
-      const cycleText = sim.cycle ? `${sim.cycle}天` : '未设置';
-      const remarkText = sim.remark ? `\n📝 备注: ${sim.remark}` : '';
-
-      // 自动延期逻辑：到期当天（或已过期）且开启了自动延期
-      if (diffDays <= 0 && sim.autoRenew && sim.cycle && sim.cycle > 0) {
-        const newDate = new Date(localToday.getTime());
-        newDate.setUTCDate(newDate.getUTCDate() + parseInt(sim.cycle));
-        const y = newDate.getUTCFullYear();
-        const m = String(newDate.getUTCMonth() + 1).padStart(2, '0');
-        const d = String(newDate.getUTCDate()).padStart(2, '0');
-        sim.expireDate = y + '-' + m + '-' + d;
-        dataChanged = true;
-        messages.push(`🔄 【eSIM 自动延期通知】\n📱 卡名: ${sim.name}\n📞 号码: ${sim.number || '未填写'}\n🔄 周期: ${cycleText}\n📅 新到期日: ${sim.expireDate}${remarkText}\n✅ 系统已自动顺延一个保号周期。`);
-        return;
-      }
-
-      if (diffDays <= 15 && diffDays > 0) {
-        messages.push(`⚠️ 【eSIM 保号提醒】\n📱 卡名: ${sim.name}\n📞 号码: ${sim.number || '未填写'}\n🔄 周期: ${cycleText}\n📅 到期: ${sim.expireDate}${remarkText}\n⏳ 剩余: ${diffDays} 天！\n👉 请尽快处理续期！`);
-      } else if (diffDays === 0) {
-        messages.push(`🚨 【eSIM 紧急提醒】\n📱 卡名: ${sim.name} 今天到期！${remarkText}`);
-      } else if (diffDays < 0 && Math.abs(diffDays) % 7 === 0) {
-        messages.push(`❌ 【eSIM 停机警告】\n📱 卡名: ${sim.name} 已过期 ${Math.abs(diffDays)} 天。${remarkText}`);
-      }
-    });
-
-    // 如果有自动延期操作，将更新后的数据写回 KV
-    if (dataChanged) {
-      await env.ESIM_DB.put("esim_list", JSON.stringify(esims));
-    }
-
-    if (messages.length > 0 && tgToken && tgChat) {
-      const text = messages.join("\n\n---\n\n");
-      const tgUrl = `https://api.telegram.org/bot${tgToken}/sendMessage`;
-      await fetch(tgUrl, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ 
-          chat_id: tgChat, 
-          text: text, 
-          parse_mode: "HTML" 
-        })
-      });
-    }
-  }
 };

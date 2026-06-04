@@ -591,7 +591,7 @@ const HTML_CONTENT = `<!DOCTYPE html>
         // 彻底解决 Windows / 安卓 / 老旧浏览器上 emoji 旗帜显示为字母的问题
         function buildFlagImg(code, extraClass) {
             const cls = 'flag-icon' + (extraClass ? ' ' + extraClass : '');
-            return '<img src="https://flagcdn.com/' + code + '.svg" alt="' + code.toUpperCase() + '" class="' + cls + '" loading="lazy" onerror="this.style.display=\'none\'">';
+            return '<img src="https://flagcdn.com/' + code + '.svg" alt="' + code.toUpperCase() + '" class="' + cls + '" loading="lazy" onerror="this.style.display=\\\'none\\\'">';
         }
 
         function getCountryFlag(numberStr) {

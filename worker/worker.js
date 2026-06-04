@@ -611,6 +611,12 @@ const HTML_CONTENT = `<!DOCTYPE html>
             return '<i class="fa-solid fa-globe text-gray-400"><\/i>';
         }
 
+        // ================= XSS 防护 =================
+        function escapeHTML(str) {
+            if (!str) return '';
+            return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;');
+        }
+
         // ================= 周期计算工具函数 =================
         function getCycleUnitLabel(unit) {
             const labels = { day: '天', month: '个月', quarter: '季度', year: '年' };
@@ -648,7 +654,7 @@ const HTML_CONTENT = `<!DOCTYPE html>
         document.getElementById('current-date').innerText = new Date().toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' });
         
         window.onload = () => {
-            if (localStorage.getItem('esim_auth_token')) {
+            if (sessionStorage.getItem('esim_auth_token')) {
                 fetchEsimData();
             }
         };
@@ -656,7 +662,7 @@ const HTML_CONTENT = `<!DOCTYPE html>
         function getAuthHeaders() {
             return {
                 'Content-Type': 'application/json',
-                'Authorization': localStorage.getItem('esim_auth_token') || ''
+                'Authorization': 'Bearer ' + (sessionStorage.getItem('esim_auth_token') || '')
             };
         }
 
@@ -713,7 +719,7 @@ const HTML_CONTENT = `<!DOCTYPE html>
                 const data = await response.json();
                 
                 if (response.ok && data.success) {
-                    localStorage.setItem('esim_auth_token', data.token);
+                    sessionStorage.setItem('esim_auth_token', data.token);
                     document.getElementById('authCode').value = '';
                     fetchEsimData();
                 } else {
@@ -729,7 +735,7 @@ const HTML_CONTENT = `<!DOCTYPE html>
         }
 
         function logout() {
-            localStorage.removeItem('esim_auth_token');
+            sessionStorage.removeItem('esim_auth_token');
             document.getElementById('login-container').classList.remove('hidden');
             document.getElementById('main-container').classList.add('hidden');
         }
@@ -1045,7 +1051,7 @@ const HTML_CONTENT = `<!DOCTYPE html>
                 const flagEmoji = getCountryFlag(sim.number);
                 
                 // 渲染备注区域
-                const remarkHTML = sim.remark ? \`<div class="bg-blue-50/60 rounded-lg p-2.5 mb-4 text-xs text-gray-700 border border-blue-100/60 break-words leading-relaxed"><i class="fa-regular fa-comment-dots mr-1.5 text-blue-400"><\/i>\${sim.remark}</div>\` : '';
+                const remarkHTML = sim.remark ? \`<div class="bg-blue-50/60 rounded-lg p-2.5 mb-4 text-xs text-gray-700 border border-blue-100/60 break-words leading-relaxed"><i class="fa-regular fa-comment-dots mr-1.5 text-blue-400"><\/i>\${escapeHTML(sim.remark)}</div>\` : '';
 
                 // 自动延期标签
                 const autoRenewBadge = sim.autoRenew ? '<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-100 text-indigo-700 whitespace-nowrap flex-shrink-0"><i class="fa-solid fa-arrows-rotate mr-0.5"><\/i>自动延期<\/span>' : '';
@@ -1082,14 +1088,14 @@ const HTML_CONTENT = `<!DOCTYPE html>
 
                         <!-- 标题区域 -->
                         <div class="pr-28 mb-3 \${batchMode ? 'pl-8' : ''}">
-                            <h2 class="text-xl font-bold text-gray-900 truncate" title="\${sim.name}">\${sim.name}</h2>
+                            <h2 class="text-xl font-bold text-gray-900 truncate" title="\${escapeHTML(sim.name)}">\${escapeHTML(sim.name)}</h2>
                         </div>
                         
                         <!-- 号码与状态区域 -->
                         <div class="flex justify-between items-center mb-4 gap-2">
                             <p class="text-gray-600 font-mono text-sm flex items-center gap-1.5 truncate">
                                 \${flagEmoji}
-                                <span class="truncate">\${sim.number || '未登记号码'}</span>
+                                <span class="truncate">\${escapeHTML(sim.number || '未登记号码')}</span>
                             </p>
                             <!-- 状态标签 -->
                             <div class="flex items-center gap-1.5 flex-shrink-0">
@@ -1433,8 +1439,11 @@ export default {
         const url = new URL(request.url);
         const path = url.pathname;
 
+        const reqOrigin = request.headers.get("Origin");
+        const allowedOrigin = reqOrigin && (reqOrigin.includes("workers.dev") || reqOrigin.includes("localhost") || reqOrigin === new URL(request.url).origin) ? reqOrigin : new URL(request.url).origin;
+
         const corsHeaders = {
-            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Origin": allowedOrigin,
             "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
             "Access-Control-Allow-Headers": "Content-Type, Authorization",
         };
@@ -1469,12 +1478,21 @@ export default {
                     }), { status: 500, headers: corsHeaders });
                 }
 
-                const code = Math.floor(100000 + Math.random() * 900000).toString();
+                const clientIp = request.headers.get("cf-connecting-ip") || "unknown";
+                const rlKey = `rate_limit_send_${clientIp}`;
+                if (await env.ESIM_DB.get(rlKey)) {
+                    return new Response(JSON.stringify({ success: false, message: "发送过于频繁，请等待 60 秒后再试。" }), { status: 429, headers: corsHeaders });
+                }
+
+                const randomBuffer = new Uint32Array(1);
+                crypto.getRandomValues(randomBuffer);
+                const code = (randomBuffer[0] % 900000 + 100000).toString();
 
                 await env.ESIM_DB.put("admin_auth_code", code, { expirationTtl: 300 });
-                await env.ESIM_DB.put("admin_auth_attempts", "0", { expirationTtl: 300 });
+                await env.ESIM_DB.put(rlKey, "1", { expirationTtl: 60 });
+                // Note: attempts rate limit initialization moved to verify
 
-                const text = `🔐 <b>【eSIM 看板安全验证】</b>\n\n有人正在尝试登录您的网页版数据面板。\n\n您的动态登录验证码是：<code>${code}</code>\n\n<i>(该验证码 5 分钟内有效。如非本人操作，请忽略，系统已开启防爆破保护)</i>`;
+                const text = `🔐 <b>【eSIM 看板安全验证】</b>\n\n有人正在尝试登录您的网页版数据面板。\n\nIP: ${clientIp}\n您的动态登录验证码是：<code>${code}</code>\n\n<i>(该验证码 5 分钟内有效。如非本人操作，请忽略，系统已开启防爆破保护)</i>`;
                 const tgUrl = `https://api.telegram.org/bot${tgToken}/sendMessage`;
                 const tgRes = await fetch(tgUrl, {
                     method: "POST",
@@ -1497,7 +1515,10 @@ export default {
                 const { code } = await request.json();
                 const storedCode = await env.ESIM_DB.get("admin_auth_code");
 
-                let attempts = parseInt(await env.ESIM_DB.get("admin_auth_attempts")) || 0;
+                const clientIp = request.headers.get("cf-connecting-ip") || "unknown";
+                const rlKeyAttempts = `rate_limit_attempts_${clientIp}`;
+
+                let attempts = parseInt(await env.ESIM_DB.get(rlKeyAttempts)) || 0;
                 if (attempts >= 5) {
                     await env.ESIM_DB.delete("admin_auth_code");
                     return new Response(JSON.stringify({ success: false, message: "错误次数过多，为保障安全，验证码已强制作废。请重新获取！" }), { status: 403, headers: corsHeaders });
@@ -1511,12 +1532,12 @@ export default {
                     const token = crypto.randomUUID();
                     await env.ESIM_DB.put("session_token_" + token, "valid", { expirationTtl: 2592000 });
                     await env.ESIM_DB.delete("admin_auth_code");
-                    await env.ESIM_DB.delete("admin_auth_attempts");
+                    await env.ESIM_DB.delete(rlKeyAttempts);
 
                     return new Response(JSON.stringify({ success: true, token: token }), { headers: corsHeaders });
                 } else {
                     attempts++;
-                    await env.ESIM_DB.put("admin_auth_attempts", attempts.toString(), { expirationTtl: 300 });
+                    await env.ESIM_DB.put(rlKeyAttempts, attempts.toString(), { expirationTtl: 300 });
                     await new Promise(resolve => setTimeout(resolve, 1000));
 
                     return new Response(JSON.stringify({ success: false, message: `验证码错误！剩余尝试次数: ${5 - attempts} 次` }), { status: 401, headers: corsHeaders });
@@ -1528,7 +1549,8 @@ export default {
 
         // ================= 批量操作 API =================
         if (path === "/api/esims/batch") {
-            const reqToken = request.headers.get("Authorization");
+            const reqTokenRaw = request.headers.get("Authorization");
+            const reqToken = reqTokenRaw ? reqTokenRaw.replace('Bearer ', '') : null;
             if (!reqToken) {
                 return new Response(JSON.stringify({ error: "Unauthorized: Missing Token" }), { status: 401, headers: corsHeaders });
             }
@@ -1590,7 +1612,8 @@ export default {
 
         // ================= 单卡 CRUD API =================
         if (path === "/api/esims") {
-            const reqToken = request.headers.get("Authorization");
+            const reqTokenRaw = request.headers.get("Authorization");
+            const reqToken = reqTokenRaw ? reqTokenRaw.replace('Bearer ', '') : null;
             if (!reqToken) {
                 return new Response(JSON.stringify({ error: "Unauthorized: Missing Token" }), { status: 401, headers: corsHeaders });
             }
@@ -1615,7 +1638,12 @@ export default {
             if (request.method === "POST") {
                 try {
                     const newSim = await request.json();
-                    if (!newSim.name || !newSim.expireDate) return new Response(JSON.stringify({ success: false, message: "参数错误" }), { status: 400, headers: corsHeaders });
+                    if (typeof newSim.name !== 'string' || !newSim.name || typeof newSim.expireDate !== 'string' || !newSim.expireDate) return new Response(JSON.stringify({ success: false, message: "参数错误" }), { status: 400, headers: corsHeaders });
+                    
+                    newSim.name = newSim.name.substring(0, 100);
+                    if (newSim.number) newSim.number = String(newSim.number).substring(0, 50);
+                    if (newSim.remark) newSim.remark = String(newSim.remark).substring(0, 500);
+
                     // 【BUG FIX】使用 crypto.randomUUID() 避免并发碰撞
                     newSim.id = crypto.randomUUID();
                     // 确保新字段有默认值
@@ -1635,15 +1663,15 @@ export default {
                     esims = esims.map(sim => {
                         if (sim.id === id) {
                             found = true;
-                            if (expireDate !== undefined) sim.expireDate = expireDate;
-                            if (name !== undefined) sim.name = name;
-                            if (number !== undefined) sim.number = number;
-                            if (startDate !== undefined) sim.startDate = startDate;
-                            if (cycle !== undefined) sim.cycle = cycle;
-                            if (cycleUnit !== undefined) sim.cycleUnit = cycleUnit;
-                            if (remark !== undefined) sim.remark = remark;
-                            if (autoRenew !== undefined) sim.autoRenew = autoRenew;
-                            if (reminderDays !== undefined) sim.reminderDays = reminderDays;
+                            if (expireDate !== undefined) sim.expireDate = String(expireDate);
+                            if (name !== undefined) sim.name = String(name).substring(0, 100);
+                            if (number !== undefined) sim.number = String(number).substring(0, 50);
+                            if (startDate !== undefined) sim.startDate = String(startDate);
+                            if (cycle !== undefined) sim.cycle = parseInt(cycle) || 0;
+                            if (cycleUnit !== undefined) sim.cycleUnit = String(cycleUnit);
+                            if (remark !== undefined) sim.remark = String(remark).substring(0, 500);
+                            if (autoRenew !== undefined) sim.autoRenew = !!autoRenew;
+                            if (reminderDays !== undefined) sim.reminderDays = parseInt(reminderDays) || 15;
                             return sim;
                         }
                         return sim;

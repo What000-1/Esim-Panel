@@ -22,6 +22,17 @@
 
 ---
 
+## 🔒 安全特性
+
+系统内置了企业级安全防护，保障您的 eSIM 核心数据不会被窃取或篡改：
+- **安全身份验证**：采用严格的 `Bearer Token` 验证，配合密码学安全的随机数发生器（CSPRG）生成动态登录验证码。
+- **XSS & 注入防护**：全局采用 HTML 实体转义渲染与数据类型校验，抵御任何形式的跨站脚本攻击（XSS）。
+- **防爆破设计**：针对 OTP 获取及登录验证双重 API 均部署了独立 IP 维度的频控与错次熔断机制，配合强随机数确保无法被穷举攻击。
+- **隐私级本地存储**：前端基于更安全的 `sessionStorage` 机制进行凭据暂存，无惧多标签页的数据残留风险。
+- **严格跨域策略**：抛弃宽泛的 `*` 跨域响应，引入动态来源校验，从根源阻断跨站请求伪造（CSRF）。
+
+---
+
 ## 📸 界面预览
 
 ![界面截图](https://github.com/GeniusZeroTwo/Number-preservation/blob/7519ab70a15dce64f548c1262441710369c5fed1/IMG/%E6%88%AA%E5%B1%8F2026-06-01%2017.56.37.png)
@@ -87,27 +98,28 @@
 
 1. 登录 Cloudflare 控制台 → **Workers & Pages** → **KV**
 2. 点击 **Create a namespace**，命名为 `esim_db`
-3. 复制它旁边的 **ID**（形如 `09fe63fac...`）备用
+*(无需再复制 ID 写入文件，我们将在之后的图形界面中直接绑定，彻底杜绝 ID 泄漏风险)*
 
-### 步骤 2：Fork 仓库并修改配置
+### 步骤 2：Fork 仓库
 
-1. **Fork** 本项目到你自己的 GitHub 账号
-2. 编辑 `wrangler.toml` 文件，将 `id = "..."` 替换为你的 **KV 数据库 ID**
-3. 保存提交
+1. **Fork** 本项目到你自己的 GitHub 账号（为保护隐私，建议将 Fork 后的仓库设置为 **Private**）
 
-### 步骤 3：在 Cloudflare 部署
+### 步骤 3：在 Cloudflare 部署并绑定 KV
 
 1. 进入 **Workers & Pages** → **Overview** → **Create Application**
 2. 选择 **Workers** → **Connect to Git**，授权并选择你 Fork 的仓库
-3. 关键配置：
-
+3. 在构建向导页面，关键配置如下：
    | 配置项 | 值 |
    |:---|:---|
    | Root directory | 留空 |
    | Build command | 留空 |
    | Entry point | `worker/worker.js` |
-
-4. 点击 **Save and Deploy**
+4. 点击 **Save and Deploy** 
+5. 部署完成后，进入该 Worker 的详情页，点击顶部菜单的 **Settings (设置)** → **Variables (变量)**。
+6. 往下滚动找到 **KV Namespace Bindings**，点击 **Add binding**：
+   - **Variable name** 必须严格填入：`ESIM_DB`
+   - **KV namespace** 下拉选择你刚才创建的 `esim_db`
+7. 点击 **Deploy** 或 **Save** 使得绑定生效。
 
 ### 步骤 4：添加 TG 密钥到 KV
 
@@ -125,21 +137,6 @@
 
 ---
 
-## 📡 API 参考
-
-所有数据接口需在请求头携带 `Authorization: <session_token>`。
-
-| 方法 | 路径 | 说明 |
-|:---|:---|:---|
-| `GET` | `/` | 返回前端页面 |
-| `POST` | `/api/auth/send` | 发送 TG 验证码 |
-| `POST` | `/api/auth/verify` | 验证登录码，返回 session token |
-| `GET` | `/api/esims` | 获取所有 eSIM 卡片列表 |
-| `POST` | `/api/esims` | 新增卡片 |
-| `PUT` | `/api/esims` | 更新卡片（支持部分字段更新） |
-| `DELETE` | `/api/esims` | 删除卡片 |
-
----
 
 ## ⏰ 定时任务说明
 

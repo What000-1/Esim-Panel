@@ -1530,7 +1530,7 @@ const HTML_CONTENT = `<!DOCTYPE html>
                 a.href = url;
                 const d = new Date();
                 const dStr = d.getFullYear() + String(d.getMonth()+1).padStart(2,'0') + String(d.getDate()).padStart(2,'0');
-                a.download = `esim_backup_${dStr}.json`;
+                a.download = 'esim_backup_${dStr}.json';
                 document.body.appendChild(a);
                 a.click();
                 document.body.removeChild(a);
@@ -1794,11 +1794,11 @@ export default {
                     // Merge mode
                     const existingMap = new Map();
                     esims.forEach(sim => existingMap.set(sim.id, sim));
-                    
+
                     data.forEach(sim => {
                         existingMap.set(sim.id, sim);
                     });
-                    
+
                     esims = Array.from(existingMap.values());
                 }
 

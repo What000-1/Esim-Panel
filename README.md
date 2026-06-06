@@ -1,91 +1,204 @@
-5.31号新增备注 可备注保号要求
+# 📱 eSIM-Tracker：单体全栈保号看板
+
+> 基于 Cloudflare Workers + KV 构建的 **零成本、高颜值、极度安全** 的 eSIM / 实体卡保号管理面板。
+> 前端展示、后端 API、定时提醒逻辑，全部浓缩在一个文件内。无需服务器，依托 Cloudflare 免费网络运行！
+> 基于原项目 https://github.com/GeniusZeroTwo/Number-preservation
+
+---
+
+## ✨ 核心功能
+
+| 功能 | 说明 |
+|:---|:---|
+| 🆓 **零成本部署** | 无需 VPS，完美白嫖 Cloudflare 生态（Workers 托管 + KV 持久化） |
+| 🎨 **高颜值 UI** | 基于 TailwindCSS 的 Glassmorphism 毛玻璃质感界面，手机 / PC 完美自适应 |
+| 🛡️ **Telegram OTP 登录** | 动态 6 位验证码登录，5 分钟有效，连续输错 5 次自动作废，防爆破机制 |
+| 📅 **开始日期 + 保号周期 → 自动推算到期日** | 选择开始日期并输入保号天数，系统自动计算到期日期，无需手动推算 |
+| 🔄 **到期后自动延期** | 开关式控制，开启后到期当天系统自动顺延一个保号周期，并通过 TG 通知 |
+| 🔁 **一键手动续期** | 点击续期按钮，以今天为基准顺延一个保号周期 |
+| ⏰ **智能 TG 提醒** | CF Cron 定时任务：到期前 15 天开始提醒、到期当天紧急告警、过期后每周推送 |
+| 🌍 **智能国旗匹配** | 内置 60+ 国家区号字典，录入带区号的号码自动显示对应国旗 |
+| 📝 **备注功能** | 可记录每张卡的保号要求（如"发送短信到某号码"），提醒推送同步包含 |
+| 💾 **加密备份与恢复** | 本地 AES 加密导出为标准 JSON 文件，彻底杜绝云端泄露；导入时支持智能合并或完全覆盖 |
+
+---
+
+## 🔒 安全特性
+
+系统内置了企业级安全防护，保障您的 eSIM 核心数据不会被窃取或篡改：
+- **安全身份验证**：采用严格的 `Bearer Token` 验证，配合密码学安全的随机数发生器（CSPRG）生成动态登录验证码。
+- **XSS & 注入防护**：全局采用 HTML 实体转义渲染与数据类型校验，抵御任何形式的跨站脚本攻击（XSS）。
+- **防爆破设计**：针对 OTP 获取及登录验证双重 API 均部署了独立 IP 维度的频控与错次熔断机制，配合强随机数确保无法被穷举攻击。
+- **隐私级本地存储**：前端基于更安全的 `sessionStorage` 机制进行凭据暂存，无惧多标签页的数据残留风险。
+- **严格跨域策略**：抛弃宽泛的 `*` 跨域响应，引入动态来源校验，从根源阻断跨站请求伪造（CSRF）。
+
+---
+
+## 📸 界面预览
+
+![界面截图](https://github.com/GeniusZeroTwo/Number-preservation/blob/7519ab70a15dce64f548c1262441710369c5fed1/IMG/%E6%88%AA%E5%B1%8F2026-06-01%2017.56.37.png)
+
+---
+
+## 🏗️ 技术架构
+
+```
+┌─────────────────────────────────────────────┐
+│            Cloudflare Workers               │
+│  ┌───────────────────────────────────────┐   │
+│  │          worker/worker.js             │   │
+│  │  ┌─────────┐  ┌─────────┐  ┌──────┐  │   │
+│  │  │ 前端 UI │  │ REST API│  │ Cron │  │   │
+│  │  │ (HTML)  │  │ (CRUD)  │  │ 定时 │  │   │
+│  │  └─────────┘  └─────────┘  └──────┘  │   │
+│  └───────────────────────────────────────┘   │
+│                     │                        │
+│              ┌──────┴──────┐                 │
+│              │  KV 数据库   │                 │
+│              │  (ESIM_DB)  │                 │
+│              └──────┬──────┘                 │
+│                     │                        │
+│          ┌──────────┴──────────┐              │
+│          │  Telegram Bot API  │              │
+│          └────────────────────┘              │
+└─────────────────────────────────────────────┘
+```
+
+---
+
+## 📊 数据模型
+
+每张 eSIM 卡片存储以下字段：
+
+| 字段 | 类型 | 必填 | 说明 |
+|:---|:---|:---|:---|
+| `id` | string | 自动生成 | 时间戳 ID |
+| `name` | string | ✅ | 卡片名称，如 "KnowRoaming" |
+| `number` | string | ❌ | 带区号的手机号码，如 "+44 7911 123456" |
+| `startDate` | string | ✅ | 开始日期（YYYY-MM-DD），默认今天 |
+| `cycle` | number | ✅ | 保号周期（天），如 180 |
+| `expireDate` | string | ✅ | 到期日期（YYYY-MM-DD），由开始日期 + 周期自动计算 |
+| `remark` | string | ❌ | 备注 / 保号要求 |
+| `autoRenew` | boolean | ❌ | 是否到期后自动延期，默认关闭 |
+
+---
+
+## 🛠️ 部署指南
+
+部署全程在网页端完成，5 分钟搞定。
+
+### 准备工作
+
+1. 准备一个 [Cloudflare](https://dash.cloudflare.com/) 账号
+2. 准备一个 Telegram 账号：
+   - 搜索 **@BotFather**，发送 `/newbot` 创建机器人，记录 **Bot Token**
+   - 搜索 **@userinfobot**，发送任意消息，记录你的数字 **Chat ID**
+   - **主动给你刚建的机器人发送一条消息激活它**（机器人不能主动发起会话）
+
+### 步骤 1：创建 KV 数据库
+
+1. 登录 Cloudflare 控制台 → **Workers & Pages** → **KV**
+2. 点击 **Create a namespace**，命名为 `esim_db`
+*(无需再复制 ID 写入文件，我们将在之后的图形界面中直接绑定，彻底杜绝 ID 泄漏风险)*
+
+### 步骤 2：Fork 仓库
+
+1. **Fork** 本项目到你自己的 GitHub 账号（为保护隐私，建议将 Fork 后的仓库设置为 **Private**）
+
+### 步骤 3：在 Cloudflare 部署并绑定 KV
+
+1. 进入 **Workers & Pages** → **Overview** → **Create Application**
+2. 选择 **Workers** → **Connect to Git**，授权并选择你 Fork 的仓库
+3. 在构建向导页面，关键配置如下：
+   | 配置项 | 值 |
+   |:---|:---|
+   | Root directory | 留空 |
+   | Build command | 留空 |
+   | Entry point | `worker/worker.js` |
+4. 点击 **Save and Deploy** 
+5. 部署完成后，进入该 Worker 的详情页，点击顶部菜单的 **Settings (设置)** → **Variables (变量)**。
+6. 往下滚动找到 **KV Namespace Bindings**，点击 **Add binding**：
+   - **Variable name** 必须严格填入：`ESIM_DB`
+   - **KV namespace** 下拉选择你刚才创建的 `esim_db`
+7. 点击 **Deploy** 或 **Save** 使得绑定生效。
+
+### 步骤 4：添加 TG 密钥到 KV
+
+1. 回到 **Workers & Pages** → **KV** → 进入 `esim_db`
+2. 在 **KV Entries** 选项卡中添加两条记录：
+
+   | Key | Value |
+   |:---|:---|
+   | `TG_BOT_TOKEN` | 你的机器人 Token |
+   | `TG_CHAT_ID` | 你的数字 Chat ID |
+
+### 步骤 5：开始使用 🎉
+
+访问 Cloudflare 分配的 Worker 域名（如 `https://esim-api.xxx.workers.dev`），点击"向 TG 机器人获取验证码"即可登录使用。配置存入 KV 后**立即生效**，无需等待。
+
+---
 
 
+## ⏰ 定时任务说明
 
+通过 `wrangler.toml` 配置的 Cron 触发器，默认为每天 **UTC 02:00（北京时间 10:00）** 执行：
 
+```toml
+[triggers]
+crons = ["0 2 * * *"]
+```
 
-# **📱 eSIM-Tracker: 单体全栈保号看板**
+执行逻辑：
 
-告别忘记充值、眼睁睁看着传家宝靓号被回收的惨痛经历！这是一个基于 Cloudflare Workers \+ KV 数据库构建的 **零成本、高颜值、极度安全** 的 eSIM / 实体卡保号管理面板。  
-**前端展示、后端 API、定时提醒逻辑，全部浓缩在一个文件内。无需服务器，依托 Cloudflare 免费网络运行！**
+1. **自动延期**：检测到已过期且开启了 `autoRenew` 的卡片 → 自动顺延一个周期 → 更新 KV → 发送 TG 通知
+2. **到期前 15 天**：发送 ⚠️ 保号提醒
+3. **到期当天**：发送 🚨 紧急提醒
+4. **过期后每 7 天**：发送 ❌ 停机警告
 
-## **✨ 核心亮点 / Features**
+---
 
-* 🆓 **完全零成本部署**：无需购买 VPS，完美白嫖 Cloudflare 生态（Workers 托管运行 \+ KV 数据持久化）。  
-* 🎨 **高颜值毛玻璃 UI**：基于 TailwindCSS 打造的 Glassmorphism 现代质感界面，手机/PC 完美自适应，绝对防重叠设计。  
-* 🛡️ **银行级安全防线**：  
-  * **TG 动态密码 (OTP) 登录**：不在代码中写死密码。每次登录需向你的专属 TG 机器人获取 6 位数动态验证码。  
-  * **防爆破机制**：验证码 5 分钟有效，连续输错 5 次立刻强制自毁作废，并带有并发延迟防御机制。  
-* ⏰ **智能 Telegram 提醒**：利用 CF Cron 定时任务，在卡片到期前 15 天内、到期当天、过期后，准时通过 TG 机器人向你发送告警推送。  
-* 🔄 **一键顺延续期**：发完保号短信后，无需日历推算。点击“一键续期”按钮，系统会自动根据设置的“保号周期（如180天）”顺延生成新的到期日。  
-* 🌍 **智能国旗匹配**：内置全球数十个国家常用区号字典。录入带区号的号码（如 \+44 或 \+1），面板会自动解析并显示对应国旗。
+## 🙋 常见问题
 
-## **📸 界面预览 / Screenshots**
+<details>
+<summary><b>Q1：访问网页报错 404？</b></summary>
 
-![image](https://github.com/GeniusZeroTwo/Number-preservation/blob/7519ab70a15dce64f548c1262441710369c5fed1/IMG/%E6%88%AA%E5%B1%8F2026-06-01%2017.56.37.png)
+检查 Cloudflare 的 Entry point 是否设置为 `worker/worker.js`。项目中不存在 `index.html`，所有前端代码都集成在 `worker.js` 中。如果仓库中有 `wrangler.jsonc` 文件，请删除它。
+</details>
 
-## **🛠️ 极简部署指南 / Deployment Guide**
+<details>
+<summary><b>Q2：提示"发送失败: 环境缺失"？</b></summary>
 
-部署过程全程在网页端完成，小白也能在 5 分钟内搞定。
+系统没有找到 TG 配置密钥。请检查 KV 数据库中 `TG_BOT_TOKEN` 和 `TG_CHAT_ID` 是否拼写正确、有无多余空格。
+</details>
 
-### **准备工作**
+<details>
+<summary><b>Q3：如何绑定自定义域名？</b></summary>
 
-1. 准备一个 [Cloudflare](https://dash.cloudflare.com/) 账号。  
-2. 准备一个 Telegram 账号，搜索 @BotFather 发送 /newbot 创建一个机器人，记录下 **Bot Token**。  
-3. 搜索 @userinfobot 发送任意消息，记录下你的数字 **Chat ID**。  
-4. **主动给你刚建的机器人发送任意一条消息激活它**（机器人不能主动发起会话）。
+在 Worker 详情页 → **Triggers** → **Custom Domains**，输入你托管在 Cloudflare 的域名即可，自带 HTTPS。
+</details>
 
-### **步骤 1：创建 KV 数据库**
+<details>
+<summary><b>Q4：到期后自动延期是怎么工作的？</b></summary>
 
-1. 登录 Cloudflare 控制台，左侧菜单找到 **Workers & Pages** \-\> **KV**。  
-2. 点击 **Create a namespace**，命名为 esim\_db，点击添加。  
-3. 创建成功后，复制它旁边长长的一串 **ID**（比如 09fe63fac...）备用。
+在卡片的编辑面板中开启「到期后自动延期」开关。当定时任务检测到卡片已过期且开启了此选项时，系统会自动将到期日顺延一个保号周期，并通过 Telegram 发送通知。注意：这只是看板上的日期延期，你仍需手动完成实际的保号操作（如发短信、充值等）。
+</details>
 
-### **步骤 2：Fork 本仓库并修改配置**
+<details>
+<summary><b>Q5：开始日期和到期日是什么关系？</b></summary>
 
-1. 将本项目 **Fork** 到你自己的 GitHub 账号下。  
-2. 在你 Fork 后的仓库中，找到并编辑 wrangler.toml 文件。  
-3. 将最下方的 id \= "..." 替换为你在**步骤 1 复制的真实 KV 数据库 ID**。  
-4. 点击 Commit changes 保存修改。
+到期日 = 开始日期 + 保号周期（天数）。新增卡片时开始日期默认为今天，也可以手动修改。输入保号周期后到期日会自动计算，你也可以手动覆盖。
+</details>
 
-### **步骤 3：在 Cloudflare 部署**
+<details>
+<summary><b>Q6：备份与恢复功能如何保证数据安全？</b></summary>
 
-1. 在 Cloudflare 左侧菜单点击 **Workers & Pages** \-\> **Overview**。  
-2. 点击右上角 **Create Application**，选择 **Workers** 选项卡，然后点击 **Connect to Git**。  
-3. 授权连接你的 GitHub 账号，选择你刚刚 Fork 的仓库。  
-4. **关键配置**（Setup build 区域）：  
-   * Root directory (根目录)：**留空**  
-   * Build command (构建命令)：**留空**  
-   * Entry point (入口点)：手动输入 **worker/worker.js**  
-5. 点击 **Save and Deploy**，等待系统部署完成（出现绿色对勾），点击 **Continue to project**。
+系统采用纯前端的 AES-256 加密算法。导出时，数据会在您的浏览器中被直接加密并保存为 `.json` 文件，您的密码和明文绝不会在网络上传输。重新导入时，必须输入当初设定的密码才能解密还原。如果在导入时遇到相同 ID 的数据，您可以自由选择“智能合并追加”或“完全覆盖”当前面板数据。
+</details>
 
-### **步骤 4：在 KV 数据库中添加 TG 密钥**
+---
 
-由于 Cloudflare 的环境变量偶尔会有部署延迟的 Bug，我们直接将验证密钥存入 KV 数据库，100% 稳定触发：
+## 📜 许可协议
 
-1. 回到 Cloudflare 左侧菜单，找到 **Workers & Pages** \-\> **KV**。  
-2. 点击进入你在步骤 1 创建的 **esim\_db** 详情页。  
-3. 点击顶部的 **KV Entries (KV 条目)** 选项卡。  
-4. 在此处手动添加两条数据：  
-   * **Key (键)** 填 TG\_BOT\_TOKEN，**Value (值)** 填你的机器人 Token。点击 **Add (添加)**。  
-   * **Key (键)** 填 TG\_CHAT\_ID，**Value (值)** 填你的数字 ID。点击 **Add (添加)**。
+本项目基于 [MIT License](LICENSE) 开源。自由使用、修改和分发，但请保留原作者信息。
 
-### **步骤 5：开始使用！**
-
-由于密钥直接存入了数据库，配置会**立即生效，无需等待！**  
-现在访问 Cloudflare 为你分配的 Worker 域名（例如 https://esim-api.xxx.workers.dev），点击“向 TG 机器人获取验证码”，开始享受你的保号面板吧！
-
-## **🙋‍♂️ 常见问题 / FAQ**
-
-**Q1: 为什么访问网页报错或者显示 404？**  
-检查你的入口点是否设置正确。项目中不存在 index.html，所有的前端代码都已经集成在了 worker/worker.js 中。请确保 Cloudflare 的 Entry point 设置为了 worker/worker.js。如果在 GitHub 库里看到了 wrangler.jsonc 文件，请务必删除它！  
-**Q2: 点击获取验证码，提示“发送失败: 环境缺失”？**  
-这是因为系统没有找到 Telegram 的配置密钥。请返回 Cloudflare 的 KV 数据库 (esim\_db) 的 KV Entries 页面，检查 TG\_BOT\_TOKEN 和 TG\_CHAT\_ID 是否拼写正确、有没有多余的空格。  
-**Q3: 如何绑定自己的自定义域名？**  
-在 Cloudflare Worker 的详情页，进入 Triggers (触发器) \-\> Custom Domains，点击 Add Custom Domain，输入你托管在 CF 的域名即可，自带 HTTPS。  
-**Q4: 我换设备登录了，如何退出？**  
-面板右上角有一个红色的“退出门”图标，点击即可销毁本地凭证，退回安全验证界面。
-
-## **📜 许可协议 / License**
-
-本项目基于 [MIT License](http://docs.google.com/LICENSE) 开源。您可以自由使用、修改和分发，但请保留原作者信息。如果您觉得好用，请帮忙点个 ⭐ Star！
+如果觉得好用，请点个 ⭐ Star 支持一下！

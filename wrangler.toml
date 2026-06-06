@@ -15,7 +15,8 @@ enabled = true
 [triggers]
 crons = ["0 2 * * *"]
 
-# 自动绑定 KV 数据库
-[[kv_namespaces]]
-binding = "ESIM_DB"
-id = "2e0c3bc7b63f4494820316a7ef02b60d"
+# 提示：由于安全防范，请勿在此处硬编码 KV ID，防止通过公开仓库泄漏。
+# 请在 Cloudflare 控制台 Worker 详情页的 Settings -> Variables -> KV Namespace Bindings 中手动绑定变量名 ESIM_DB
+# [[kv_namespaces]]
+# binding = "ESIM_DB"
+# id = "YOUR_KV_NAMESPACE_ID"

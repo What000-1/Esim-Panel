@@ -17,6 +17,6 @@ crons = ["0 2 * * *"]
 
 # 提示：由于安全防范，请勿在此处硬编码 KV ID，防止通过公开仓库泄漏。
 # 请在 Cloudflare 控制台 Worker 详情页的 Settings -> Variables -> KV Namespace Bindings 中手动绑定变量名 ESIM_DB
-[[kv_namespaces]]
-binding = "ESIM_DB"
-id = "YOUR_KV_NAMESPACE_ID"
+# [[kv_namespaces]]
+# binding = "ESIM_DB"
+# id = "YOUR_KV_NAMESPACE_ID"

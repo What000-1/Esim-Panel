@@ -246,3 +246,51 @@ test("served HTML has no inline executable handlers and uses local scripts", () 
   assert(!assets["/"].body.includes("cdn.tailwindcss.com"));
   assert(!/<script[^>]+src="https?:/.test(assets["/"].body));
 });
+
+test("500-card filtering reuses DOM, preserves selection and releases deleted cards", async (t) => {
+  const { w, d, setCards } = await browser(t);
+  const cards = Array.from({ length: 500 }, (_, i) => ({
+    ...sample,
+    id: `card-${i}`,
+    name: `Card ${i}`,
+  }));
+  setCards(cards);
+  const original = d.querySelector('[data-id="card-42"]');
+  const statistic = d.querySelector("#stats-container .glass-card");
+  const search = d.getElementById("searchInput");
+  search.value = "Card 42";
+  w.filterAndRender();
+  assert.equal(d.querySelector('[data-id="card-42"]'), original);
+  assert.equal(d.querySelectorAll("#esim-container [data-id]").length, 11);
+  assert.equal(d.querySelector("#stats-container .glass-card"), statistic);
+  const observer = new w.MutationObserver(() => {});
+  observer.observe(d.getElementById("esim-container"), { childList: true });
+  w.filterAndRender();
+  assert.equal(observer.takeRecords().length, 0);
+  observer.disconnect();
+  w.toggleBatchMode();
+  const checkbox = d.querySelector('[data-select-id="card-42"]');
+  checkbox.click();
+  search.value = "no results";
+  w.filterAndRender();
+  search.value = "Card 42";
+  w.filterAndRender();
+  assert.equal(d.querySelector('[data-select-id="card-42"]').checked, true);
+  assert(
+    d.querySelector('[data-id="card-42"]').classList.contains("card-selected"),
+  );
+  search.value = "";
+  setCards(
+    cards.map((card) =>
+      card.id === "card-42" ? { ...card, name: "Updated" } : card,
+    ),
+  );
+  assert.equal(
+    d.querySelector('[data-id="card-42"] h2').textContent,
+    "Updated",
+  );
+  setCards(cards.filter((card) => card.id !== "card-42"));
+  assert.equal(w.eval('cardRenderCache.has("card-42")'), false);
+  await w.logout(false);
+  assert.equal(w.eval("cardRenderCache.size"), 0);
+});

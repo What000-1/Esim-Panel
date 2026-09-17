@@ -13,6 +13,7 @@ let batchMode = false;
 let selectedIds = new Set();
 let currentSort = { key: "remainDays", asc: true };
 let searchTimer = null;
+const cardRenderCache = new Map();
 let renewTarget = null; // { id, cycle, cycleUnit, expireDate, name } - 当前续期目标
 
 // ================= XSS 防护 =================
@@ -155,6 +156,8 @@ async function logout(revoke = true) {
   sessionStorage.removeItem("esim_auth_token");
   sessionStorage.removeItem("esim_challenge_id");
   esimData = [];
+  cardRenderCache.clear();
+  clearTimeout(searchTimer);
   dataRevision = null;
   selectedIds.clear();
   batchMode = false;
@@ -210,7 +213,7 @@ function debouncedFilter() {
   clearTimeout(searchTimer);
   searchTimer = setTimeout(() => {
     filterAndRender();
-  }, 300);
+  }, 150);
 }
 
 function filterAndRender() {
@@ -442,6 +445,11 @@ function renderCards(esims) {
 
   renderStats();
 
+  // Keep filtered-out cards reusable, but release deleted cards and old sessions.
+  const liveIds = new Set(esimData.map((sim) => sim.id));
+  for (const id of cardRenderCache.keys())
+    if (!liveIds.has(id)) cardRenderCache.delete(id);
+
   const today = todayString();
 
   if (esims.length === 0) {
@@ -453,8 +461,7 @@ function renderCards(esims) {
   // 排序
   const sorted = sortEsims(esims);
 
-  // 【BUG FIX】使用数组拼接后一次性赋值，避免 innerHTML += 导致的重复解析
-  const cardHTMLs = [];
+  const cardNodes = [];
 
   sorted.forEach((sim) => {
     const diffDays = daysBetween(today, sim.expireDate);
@@ -519,7 +526,7 @@ function renderCards(esims) {
                 ${checkboxHTML}
 
                 <!-- 操作按钮组 -->
-                <div class="absolute top-4 right-4 flex gap-1.5 opacity-100 lg:opacity-0 lg:group-hover:opacity-100 lg:group-focus-within:opacity-100 transition-all duration-300 z-20 bg-white/80 p-1.5 rounded-full backdrop-blur-md border border-white/60 shadow-sm">
+                <div class="absolute top-4 right-4 flex gap-1.5 opacity-100 lg:opacity-0 lg:group-hover:opacity-100 lg:group-focus-within:opacity-100 transition-opacity duration-150 z-20 bg-white p-1.5 rounded-full border border-white/60 shadow-sm">
                     <button data-action="edit" data-card-id="${escapeHTML(sim.id)}" class="text-green-600 hover:text-white hover:bg-green-500 bg-white w-8 h-8 rounded-full flex items-center justify-center transition-colors shadow-sm" title="编辑卡片资料">
                         <i class="fa-solid fa-pen text-sm"></i>
                     </button>
@@ -559,7 +566,7 @@ function renderCards(esims) {
                 <div class="mt-auto">
                     <div class="flex justify-between text-sm font-semibold mb-2">
                         <span class="text-gray-700">剩余时间</span>
-                        <span class="text-gray-900 font-bold ${diffDays <= reminderDays && diffDays > 0 ? "text-red-600 animate-pulse" : ""}">${diffDays < 0 ? "0" : diffDays} 天</span>
+                        <span class="text-gray-900 font-bold ${diffDays <= reminderDays && diffDays > 0 ? "text-red-600" : ""}">${diffDays < 0 ? "0" : diffDays} 天</span>
                     </div>
                     <div class="w-full bg-gray-200/60 rounded-full h-3 mb-2 shadow-inner">
                         <div class="${statusColor} h-3 rounded-full shadow-sm transition-all duration-1000" style="width: ${percent}%"></div>
@@ -571,10 +578,25 @@ function renderCards(esims) {
                 </div>
             </div>
         `;
-    cardHTMLs.push(cardHTML);
+    let cached = cardRenderCache.get(sim.id);
+    if (!cached || cached.html !== cardHTML) {
+      const template = document.createElement("template");
+      template.innerHTML = cardHTML;
+      cached = { html: cardHTML, node: template.content.firstElementChild };
+      cardRenderCache.set(sim.id, cached);
+    }
+    // Selection can change directly through a checkbox without rebuilding HTML.
+    cached.node.classList.toggle("card-selected", isSelected);
+    cached.node.querySelector(".card-select-input").checked = isSelected;
+    cardNodes.push(cached.node);
   });
 
-  container.innerHTML = cardHTMLs.join("");
+  // An unchanged filter result should not disturb focus or trigger layout again.
+  if (
+    container.children.length !== cardNodes.length ||
+    cardNodes.some((node, index) => container.children[index] !== node)
+  )
+    container.replaceChildren(...cardNodes);
 
   updateSelectedCount();
 }
@@ -892,15 +914,26 @@ function renderStats() {
   let safeCount = 0,
     warningCount = 0,
     dangerCount = 0;
+  const today = todayString();
   for (const sim of esimData) {
-    const days = daysBetween(todayString(), sim.expireDate);
+    const days = daysBetween(today, sim.expireDate);
     const reminder = sim.reminderDays ?? 15;
     if (days <= reminder) dangerCount++;
     else if (days <= reminder * 3) warningCount++;
     else safeCount++;
   }
   // 统计区域（基于全部数据，而非过滤后的）
-  document.getElementById("stats-container").innerHTML = `
+  const container = document.getElementById("stats-container");
+  const counts = [safeCount, warningCount, dangerCount];
+  const current = [...container.querySelectorAll(".text-3xl")];
+  if (current.length === 3) {
+    current.forEach((node, index) => {
+      if (node.textContent !== String(counts[index]))
+        node.textContent = String(counts[index]);
+    });
+    return;
+  }
+  container.innerHTML = `
         <div class="glass-card rounded-2xl p-5 flex items-center justify-between border-l-4 border-l-green-500">
             <div>
                 <p class="text-gray-500 text-sm font-bold uppercase">安全卡片</p>

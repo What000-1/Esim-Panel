@@ -26,8 +26,8 @@ enabled = true
 [triggers]
 crons = ["0 2 * * *"]
 
-# 升级前务必填入原 ESIM_DB namespace ID，确保首次迁移读取旧数据。
+# 从本仓库 7ec88b9 的历史配置恢复原 ESIM_DB，供首次迁移读取旧数据。
 # Namespace ID 是标识符，不是访问密钥；不要新建空 namespace 替换原绑定。
-# [[kv_namespaces]]
-# binding = "ESIM_DB"
-# id = "YOUR_KV_NAMESPACE_ID"
+[[kv_namespaces]]
+binding = "ESIM_DB"
+id = "2e0c3bc7b63f4494820316a7ef02b60d"

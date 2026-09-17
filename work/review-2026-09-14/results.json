@@ -1,0 +1,63 @@
+[
+  {
+    "id": "E01",
+    "workerAndInlineSyntax": "pass",
+    "sourceSha256": "4edcbc630bcfcfc6ce4fd3bdc554acb188a2af72e05751ec45910233bbee1ebb"
+  },
+  {
+    "id": "E02",
+    "unescapedNameReachesRenewInnerHTML": "<i class=\"fa-solid fa-sim-card mr-1\"></i> <b data-review=\"marker\">Example</b>　|　周期: 30 天",
+    "browserExecutionTested": false
+  },
+  {
+    "id": "E03",
+    "nullImportStatus": 200,
+    "subsequentCronError": "Cannot read properties of null (reading 'expireDate')"
+  },
+  {
+    "id": "E04",
+    "concurrentCreateStatuses": [
+      200,
+      200
+    ],
+    "expectedRows": 2,
+    "actualRows": 1
+  },
+  {
+    "id": "E05",
+    "jan31PlusMonth": "2026-03-03",
+    "leapDayPlusYear": "2025-03-01"
+  },
+  {
+    "id": "E06",
+    "notificationCount": 1,
+    "messageCharacters": 6133,
+    "mockHTTPStatus": 400,
+    "scheduledResolvedWithoutError": true
+  },
+  {
+    "id": "E07",
+    "blockedIPStatus": 403,
+    "globalCodeDeleted": true
+  },
+  {
+    "id": "E08",
+    "statsRetainedAfterEmptyList": true
+  },
+  {
+    "id": "E09",
+    "loginButtonDisabledAfterSuccessfulLoginAndLogout": true
+  },
+  {
+    "id": "E10",
+    "addTimeAscendingWithUUID": [
+      "newer",
+      "older"
+    ]
+  },
+  {
+    "id": "E11",
+    "reflectedUntrustedOrigin": "https://workers.dev.attacker.invalid",
+    "bearerTokenStillRequired": true
+  }
+]

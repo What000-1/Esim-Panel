@@ -2,12 +2,23 @@
 name = "esim-api"
 
 # 明确告诉 Cloudflare 我们后端代码的准确路径
-main = "worker/worker.js"
+main = "worker/entry.js"
 
-# 更新为最新的兼容性日期，满足 Cloudflare 新版要求
+# 固定已验证的兼容性日期
 compatibility_date = "2026-05-31"
 
-# 新版 Cloudflare (Wrangler v3.109.0+) 强烈建议添加的日志观测配置，消除构建警告
+[build]
+command = "npm run build"
+
+[[durable_objects.bindings]]
+name = "ESIM_STORE"
+class_name = "EsimStore"
+
+[[migrations]]
+tag = "v2-sqlite-store"
+new_sqlite_classes = ["EsimStore"]
+
+# 记录请求与定时提醒的运行结果
 [observability]
 enabled = true
 
@@ -15,8 +26,8 @@ enabled = true
 [triggers]
 crons = ["0 2 * * *"]
 
-# 提示：由于安全防范，请勿在此处硬编码 KV ID，防止通过公开仓库泄漏。
-# 请在 Cloudflare 控制台 Worker 详情页的 Settings -> Variables -> KV Namespace Bindings 中手动绑定变量名 ESIM_DB
+# 升级前务必填入原 ESIM_DB namespace ID，确保首次迁移读取旧数据。
+# Namespace ID 是标识符，不是访问密钥；不要新建空 namespace 替换原绑定。
 # [[kv_namespaces]]
 # binding = "ESIM_DB"
 # id = "YOUR_KV_NAMESPACE_ID"

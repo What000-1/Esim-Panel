@@ -1,204 +1,134 @@
-# 📱 eSIM-Tracker：单体全栈保号看板
+# eSIM 保号看板
 
-> 基于 Cloudflare Workers + KV 构建的 **零成本、高颜值、极度安全** 的 eSIM / 实体卡保号管理面板。
-> 前端展示、后端 API、定时提醒逻辑，全部浓缩在一个文件内。无需服务器，依托 Cloudflare 免费网络运行！
-> 基于原项目 https://github.com/GeniusZeroTwo/Number-preservation
+使用 Cloudflare Workers 和 SQLite Durable Object 管理 eSIM / 实体卡的到期日期，通过 Telegram 验证码登录和接收到期提醒。基于 [原项目](https://github.com/GeniusZeroTwo/Number-preservation) 改进。
 
----
+> **从旧版升级：首次部署前必须绑定原来的 `ESIM_DB` KV namespace。** 新版会一次性迁移卡片到 Durable Object，之后不再向 KV 写入卡片。请先导出备份，保留原 KV，升级后重新登录。不要在旧站点仍持续写入时切换版本。
 
-## ✨ 核心功能
+## 功能与约定
 
-| 功能 | 说明 |
-|:---|:---|
-| 🆓 **零成本部署** | 无需 VPS，完美白嫖 Cloudflare 生态（Workers 托管 + KV 持久化） |
-| 🎨 **高颜值 UI** | 基于 TailwindCSS 的 Glassmorphism 毛玻璃质感界面，手机 / PC 完美自适应 |
-| 🛡️ **Telegram OTP 登录** | 动态 6 位验证码登录，5 分钟有效，连续输错 5 次自动作废，防爆破机制 |
-| 📅 **开始日期 + 保号周期 → 自动推算到期日** | 选择开始日期并输入保号天数，系统自动计算到期日期，无需手动推算 |
-| 🔄 **到期后自动延期** | 开关式控制，开启后到期当天系统自动顺延一个保号周期，并通过 TG 通知 |
-| 🔁 **一键手动续期** | 点击续期按钮，以今天为基准顺延一个保号周期 |
-| ⏰ **智能 TG 提醒** | CF Cron 定时任务：到期前 15 天开始提醒、到期当天紧急告警、过期后每周推送 |
-| 🌍 **智能国旗匹配** | 内置 60+ 国家区号字典，录入带区号的号码自动显示对应国旗 |
-| 📝 **备注功能** | 可记录每张卡的保号要求（如"发送短信到某号码"），提醒推送同步包含 |
-| 💾 **加密备份与恢复** | 本地 AES 加密导出为标准 JSON 文件，彻底杜绝云端泄露；导入时支持智能合并或完全覆盖 |
+- 周期支持天、月、季度和年；手动续期可选择从原到期日或今天开始。
+- 页面和定时任务统一按北京时间计算日历日期。按月/季度/年增加周期时，目标月份没有对应日期则取月末，例如 `2026-01-31 + 1 月 = 2026-02-28`；下一次从新的到期日继续计算，不保留最初的“31 日”锚点。
+- 提前提醒默认为 15 天，可设为 0–3650 天；0 表示只在到期当天及过期后提醒。过期后每 7 天提醒。
+- 自动延期只修改看板日期，**不会替你充值或发送保号短信**。到期当天或已过期时，以执行当天为基准增加一个周期。
+- 支持名称/号码搜索、批量续期与删除、加密备份的合并或覆盖导入。
+- 总览统计始终基于全部卡片；添加时间按 `createdAt` 排序。没有可靠添加时间的旧 UUID 记录排在最后并保留相对顺序。
+- 每个面板最多 500 张卡片；周期为 1–36500 的整数。名称最多 100 字、号码 50 字、备注 500 字。
 
----
+## 从旧版升级
 
-## 🔒 安全特性
+1. 在旧版面板导出加密备份，并保留密码。暂停其他标签页上的编辑操作。
+2. 安装 Node.js 22 或以上版本，拉取新版源码，在项目根目录执行：
 
-系统内置了企业级安全防护，保障您的 eSIM 核心数据不会被窃取或篡改：
-- **安全身份验证**：采用严格的 `Bearer Token` 验证，配合密码学安全的随机数发生器（CSPRG）生成动态登录验证码。
-- **XSS & 注入防护**：全局采用 HTML 实体转义渲染与数据类型校验，抵御任何形式的跨站脚本攻击（XSS）。
-- **防爆破设计**：针对 OTP 获取及登录验证双重 API 均部署了独立 IP 维度的频控与错次熔断机制，配合强随机数确保无法被穷举攻击。
-- **隐私级本地存储**：前端基于更安全的 `sessionStorage` 机制进行凭据暂存，无惧多标签页的数据残留风险。
-- **严格跨域策略**：抛弃宽泛的 `*` 跨域响应，引入动态来源校验，从根源阻断跨站请求伪造（CSRF）。
+   ```sh
+   npm ci
+   npm test
+   ```
 
----
+3. 修改 `wrangler.toml`，保留已有的 Worker 名称，并取消末尾 KV 配置的注释，填入**原 namespace 的 ID**：
 
-## 📸 界面预览
+   ```toml
+   [[kv_namespaces]]
+   binding = "ESIM_DB"
+   id = "这里填原有的 namespace ID"
+   ```
 
-![界面截图](https://github.com/GeniusZeroTwo/Number-preservation/blob/7519ab70a15dce64f548c1262441710369c5fed1/IMG/%E6%88%AA%E5%B1%8F2026-06-01%2017.56.37.png)
+   Namespace ID 是标识符，不是访问凭据。不要新建空 namespace 替代原库；仅在控制台绑定但配置文件未声明的绑定，可能在 CLI 部署时被覆盖。
 
----
+4. 保留 `ESIM_STORE` Durable Object 绑定和 `v2-sqlite-store` 迁移声明。已有其他迁移时，追加该迁移，不能删除旧迁移历史。
+5. Telegram 配置可继续从原 KV 的 `TG_BOT_TOKEN` / `TG_CHAT_ID` 读取，也可以改为 Worker Secrets：
 
-## 🏗️ 技术架构
+   ```sh
+   npx wrangler secret put TG_BOT_TOKEN
+   npx wrangler secret put TG_CHAT_ID
+   ```
 
-```
-┌─────────────────────────────────────────────┐
-│            Cloudflare Workers               │
-│  ┌───────────────────────────────────────┐   │
-│  │          worker/worker.js             │   │
-│  │  ┌─────────┐  ┌─────────┐  ┌──────┐  │   │
-│  │  │ 前端 UI │  │ REST API│  │ Cron │  │   │
-│  │  │ (HTML)  │  │ (CRUD)  │  │ 定时 │  │   │
-│  │  └─────────┘  └─────────┘  └──────┘  │   │
-│  └───────────────────────────────────────┘   │
-│                     │                        │
-│              ┌──────┴──────┐                 │
-│              │  KV 数据库   │                 │
-│              │  (ESIM_DB)  │                 │
-│              └──────┬──────┘                 │
-│                     │                        │
-│          ┌──────────┴──────────┐              │
-│          │  Telegram Bot API  │              │
-│          └────────────────────┘              │
-└─────────────────────────────────────────────┘
-```
+6. 先检查打包结果，再部署：
 
----
+   ```sh
+   npx wrangler deploy --dry-run
+   npm run deploy
+   ```
 
-## 📊 数据模型
+7. 用 TG 验证码重新登录。核对卡片数量、日期、备注和自动延期设置。迁移时无法通过校验的记录会隔离，面板提示数量，可下载待修正记录；下载内容是明文，请妥善保存。原始 `esim_list` 仍留在原 KV，便于对照和恢复。
 
-每张 eSIM 卡片存储以下字段：
+迁移只在 Durable Object 首次初始化时执行。KV 读取失败或缺少绑定时会停止初始化，避免把旧数据误判为空库。**不要在升级环境设置 `FRESH_INSTALL=true`**。升级后的旧会话不会继承。
 
-| 字段 | 类型 | 必填 | 说明 |
-|:---|:---|:---|:---|
-| `id` | string | 自动生成 | 时间戳 ID |
-| `name` | string | ✅ | 卡片名称，如 "KnowRoaming" |
-| `number` | string | ❌ | 带区号的手机号码，如 "+44 7911 123456" |
-| `startDate` | string | ✅ | 开始日期（YYYY-MM-DD），默认今天 |
-| `cycle` | number | ✅ | 保号周期（天），如 180 |
-| `expireDate` | string | ✅ | 到期日期（YYYY-MM-DD），由开始日期 + 周期自动计算 |
-| `remark` | string | ❌ | 备注 / 保号要求 |
-| `autoRenew` | boolean | ❌ | 是否到期后自动延期，默认关闭 |
+回退旧代码前，先在新版导出最新备份；原 KV 不会自动包含升级后的修改。旧版无法保证并发写入安全，不能与新版同时使用。
 
----
+## 全新部署
 
-## 🛠️ 部署指南
+1. 创建 Telegram Bot，主动向机器人发送消息以允许接收通知。
+2. 在 `wrangler.toml` 顶层增加以下配置，明确这是新面板：
 
-部署全程在网页端完成，5 分钟搞定。
+   ```toml
+   [vars]
+   FRESH_INSTALL = "true"
+   ```
 
-### 准备工作
+3. 运行 `npm ci`，设置上面的两个 Worker Secrets，再执行 `npm run deploy`。
+4. 打开 Worker 地址，获取验证码并登录。新部署不需要 KV；卡片、登录挑战、会话及通知记录都存于 Durable Object。
 
-1. 准备一个 [Cloudflare](https://dash.cloudflare.com/) 账号
-2. 准备一个 Telegram 账号：
-   - 搜索 **@BotFather**，发送 `/newbot` 创建机器人，记录 **Bot Token**
-   - 搜索 **@userinfobot**，发送任意消息，记录你的数字 **Chat ID**
-   - **主动给你刚建的机器人发送一条消息激活它**（机器人不能主动发起会话）
+也可以使用 Cloudflare Git 构建：依赖安装使用 `npm ci`，部署命令使用 `npm run deploy`，Wrangler 会自动执行构建。不要直接把单个 JS 文件复制进网页编辑器。资源使用受 Cloudflare 账户配额和计费规则约束。
 
-### 步骤 1：创建 KV 数据库
+## 本地开发与检查
 
-1. 登录 Cloudflare 控制台 → **Workers & Pages** → **KV**
-2. 点击 **Create a namespace**，命名为 `esim_db`
-*(无需再复制 ID 写入文件，我们将在之后的图形界面中直接绑定，彻底杜绝 ID 泄漏风险)*
-
-### 步骤 2：Fork 仓库
-
-1. **Fork** 本项目到你自己的 GitHub 账号（为保护隐私，建议将 Fork 后的仓库设置为 **Private**）
-
-### 步骤 3：在 Cloudflare 部署并绑定 KV
-
-1. 进入 **Workers & Pages** → **Overview** → **Create Application**
-2. 选择 **Workers** → **Connect to Git**，授权并选择你 Fork 的仓库
-3. 在构建向导页面，关键配置如下：
-   | 配置项 | 值 |
-   |:---|:---|
-   | Root directory | 留空 |
-   | Build command | 留空 |
-   | Entry point | `worker/worker.js` |
-4. 点击 **Save and Deploy** 
-5. 部署完成后，进入该 Worker 的详情页，点击顶部菜单的 **Settings (设置)** → **Variables (变量)**。
-6. 往下滚动找到 **KV Namespace Bindings**，点击 **Add binding**：
-   - **Variable name** 必须严格填入：`ESIM_DB`
-   - **KV namespace** 下拉选择你刚才创建的 `esim_db`
-7. 点击 **Deploy** 或 **Save** 使得绑定生效。
-
-### 步骤 4：添加 TG 密钥到 KV
-
-1. 回到 **Workers & Pages** → **KV** → 进入 `esim_db`
-2. 在 **KV Entries** 选项卡中添加两条记录：
-
-   | Key | Value |
-   |:---|:---|
-   | `TG_BOT_TOKEN` | 你的机器人 Token |
-   | `TG_CHAT_ID` | 你的数字 Chat ID |
-
-### 步骤 5：开始使用 🎉
-
-访问 Cloudflare 分配的 Worker 域名（如 `https://esim-api.xxx.workers.dev`），点击"向 TG 机器人获取验证码"即可登录使用。配置存入 KV 后**立即生效**，无需等待。
-
----
-
-
-## ⏰ 定时任务说明
-
-通过 `wrangler.toml` 配置的 Cron 触发器，默认为每天 **UTC 02:00（北京时间 10:00）** 执行：
-
-```toml
-[triggers]
-crons = ["0 2 * * *"]
+```sh
+npm ci
+npm run dev
+npm test
+npm run check
 ```
 
-执行逻辑：
+本地创建 `.dev.vars`，填入 `FRESH_INSTALL=true` 和测试机器人的配置；不要提交该文件。`npm run dev` 使用本地存储，但填写真实机器人配置后，获取验证码和定时通知会实际发送 TG 消息。
 
-1. **自动延期**：检测到已过期且开启了 `autoRenew` 的卡片 → 自动顺延一个周期 → 更新 KV → 发送 TG 通知
-2. **到期前 15 天**：发送 ⚠️ 保号提醒
-3. **到期当天**：发送 🚨 紧急提醒
-4. **过期后每 7 天**：发送 ❌ 停机警告
+自动化测试完全使用本地数据和模拟 Telegram 响应，不会发送真实消息。`npm test` 包括日期边界、字段校验、并发与版本冲突、验证码隔离、迁移、通知重试、DOM 交互以及 workerd 集成测试。`npm run check` 还会执行 Wrangler dry-run，不上传代码。
 
----
+依赖由 `package-lock.json` 固定。Miniflare 版本与锁定的 Wrangler 所用运行时一致；升级工具链时应同步更新并重新运行测试。
 
-## 🙋 常见问题
+## 存储、认证与提醒
 
-<details>
-<summary><b>Q1：访问网页报错 404？</b></summary>
+所有请求使用固定名称 `esim-panel-v2` 的 Durable Object。修改经过同一个串行队列，卡片列表更新使用 SQLite 事务。编辑、删除、导入和批量操作携带 `If-Match`，基于旧快照的修改返回 409；请关闭旧表单、刷新后重新操作。新增是独立插入，不会覆盖其他卡片。不要随意更换对象名称或移除绑定，否则会访问不同的数据空间。
 
-检查 Cloudflare 的 Entry point 是否设置为 `worker/worker.js`。项目中不存在 `index.html`，所有前端代码都集成在 `worker.js` 中。如果仓库中有 `wrangler.jsonc` 文件，请删除它。
-</details>
+验证码有效期 5 分钟，每个独立挑战最多输错 5 次，绑定请求 IP；网络变化后需重新获取。每 IP 60 秒可发送一次，面板每小时最多发送 60 次；验证另有 IP 频控。成功后验证码立即消费。会话最多有效 30 天，保存在浏览器 `sessionStorage`，退出会注销服务端会话并清理页面数据。
 
-<details>
-<summary><b>Q2：提示"发送失败: 环境缺失"？</b></summary>
+每天 UTC 02:00（北京时间 10:00），Cron 计算提醒并将通知与自动延期结果一起持久化。Alarm 逐条发送通知，文本按安全长度分段，并检查 HTTP 状态和 Telegram `ok` 字段。失败后退避重试，单个片段最多尝试 5 次；达到上限后保留失败记录并在面板中显示。正常响应已确认的通知不会再次发送；网络结果不明或进程在发送成功后中断时，仍可能出现重复消息，因为 Telegram 没有为此请求提供端到端幂等保证。
 
-系统没有找到 TG 配置密钥。请检查 KV 数据库中 `TG_BOT_TOKEN` 和 `TG_CHAT_ID` 是否拼写正确、有无多余空格。
-</details>
+通知按“卡片 + 北京日期”去重，成功历史保留 35 天。失败记录不会自动丢弃；修复机器人配置后，点击面板中的“重试失败提醒”重新入队。
 
-<details>
-<summary><b>Q3：如何绑定自定义域名？</b></summary>
+## 备份与数据模型
 
-在 Worker 详情页 → **Triggers** → **Custom Domains**，输入你托管在 Cloudflare 的域名即可，自带 HTTPS。
-</details>
+备份在浏览器中使用 AES 加密，密码不发送给服务端，兼容旧版 `version: "1.0"` 备份。恢复时解密后的卡片数据会通过当前站点的 API 保存到服务端。请选择足够强的备份密码并保存好；这不等于服务端卡片数据采用用户密码端到端加密。
 
-<details>
-<summary><b>Q4：到期后自动延期是怎么工作的？</b></summary>
+| 字段               | 类型          | 说明                                                  |
+| ------------------ | ------------- | ----------------------------------------------------- |
+| `id`               | string        | 新记录使用 UUID；兼容旧时间戳 ID                      |
+| `name`             | string        | 必填名称                                              |
+| `number`、`remark` | string        | 选填号码和备注                                        |
+| `startDate`        | string / null | `YYYY-MM-DD`；旧记录可能缺失，新建必填                |
+| `expireDate`       | string        | 必须为真实日历日期                                    |
+| `cycle`            | integer       | 正整数周期                                            |
+| `cycleUnit`        | string        | `day` / `month` / `quarter` / `year`                  |
+| `reminderDays`     | integer       | 默认为 15，可为 0                                     |
+| `autoRenew`        | boolean       | 默认为 false                                          |
+| `createdAt`        | string / null | 新增时由服务端写入；旧时间戳 ID 可恢复，否则保留 null |
 
-在卡片的编辑面板中开启「到期后自动延期」开关。当定时任务检测到卡片已过期且开启了此选项时，系统会自动将到期日顺延一个保号周期，并通过 Telegram 发送通知。注意：这只是看板上的日期延期，你仍需手动完成实际的保号操作（如发短信、充值等）。
-</details>
+导入先验证全部记录，再一次性保存；错误包含记录序号。合并模式覆盖同 ID 并追加新 ID；完全覆盖模式需要确认替换数量。导入不接受重复 ID 或无效模式。
 
-<details>
-<summary><b>Q5：开始日期和到期日是什么关系？</b></summary>
+## 源码结构
 
-到期日 = 开始日期 + 保号周期（天数）。新增卡片时开始日期默认为今天，也可以手动修改。输入保号周期后到期日会自动计算，你也可以手动覆盖。
-</details>
+| 路径                                         | 职责                                       |
+| -------------------------------------------- | ------------------------------------------ |
+| `web/index.html`、`web/styles.css`           | 页面与样式                                 |
+| `web/app.js`、`web/flags.js`                 | 页面交互、备份与国旗显示                   |
+| `shared/dates.js`                            | 前后端共享的日期规则                       |
+| `worker/entry.js`                            | HTTP 入口、静态资源、同源规则与 Cron 入口  |
+| `worker/store.js`                            | Durable Object、迁移、认证、事务与通知状态 |
+| `worker/validation.js`、`worker/telegram.js` | 输入校验与消息投递                         |
+| `scripts/build.mjs`                          | 生成本地 CSS 与静态资源模块                |
+| `tests/`                                     | 回归及 Workers 运行时测试                  |
 
-<details>
-<summary><b>Q6：备份与恢复功能如何保证数据安全？</b></summary>
+HTML 中的静态事件声明在构建时转换为外部脚本监听器，部署页面不包含行内脚本；卡片事件使用委托监听器，用户字段按文本渲染。CSS 和备份库随 Worker 提供，图标字体和国旗图片仍从第三方 CDN 加载。
 
-系统采用纯前端的 AES-256 加密算法。导出时，数据会在您的浏览器中被直接加密并保存为 `.json` 文件，您的密码和明文绝不会在网络上传输。重新导入时，必须输入当初设定的密码才能解密还原。如果在导入时遇到相同 ID 的数据，您可以自由选择“智能合并追加”或“完全覆盖”当前面板数据。
-</details>
+## 许可
 
----
-
-## 📜 许可协议
-
-本项目基于 [MIT License](LICENSE) 开源。自由使用、修改和分发，但请保留原作者信息。
-
-如果觉得好用，请点个 ⭐ Star 支持一下！
+[MIT](LICENSE)。请保留原作者与许可证信息。

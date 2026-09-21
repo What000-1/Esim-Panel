@@ -1,6 +1,7 @@
 import {
   HttpError,
   MAX_CARDS,
+  MAX_RENEWAL_HISTORY,
   readJSON,
   validId,
   validateCard,
@@ -231,7 +232,9 @@ export class EsimStore {
         request.method === "DELETE"
           ? cards.filter((card) => !ids.has(card.id))
           : cards.map((card) =>
-              ids.has(card.id) ? this.renew(card, body.renewMode) : card,
+              ids.has(card.id)
+                ? this.renew(card, body.renewMode, "batch")
+                : card,
             );
     } else if (request.method === "POST") {
       if (!body.startDate) throw new HttpError(400, "请选择开始日期");
@@ -240,6 +243,7 @@ export class EsimStore {
           ...body,
           id: crypto.randomUUID(),
           createdAt: new Date().toISOString(),
+          renewalHistory: [],
         }),
       );
     } else {
@@ -248,13 +252,14 @@ export class EsimStore {
       if (index < 0) throw new HttpError(404, "未找到记录");
       if (request.method === "DELETE") cards.splice(index, 1);
       else if (body.renewMode !== undefined)
-        cards[index] = this.renew(cards[index], body.renewMode);
+        cards[index] = this.renew(cards[index], body.renewMode, "manual");
       else
         cards[index] = validateCard({
           ...cards[index],
           ...body,
           id,
           createdAt: cards[index].createdAt,
+          renewalHistory: cards[index].renewalHistory,
         });
     }
     cards = validateList(cards);
@@ -265,14 +270,29 @@ export class EsimStore {
       revisionHeaders(this.revision()),
     );
   }
-  renew(card, mode) {
+  renew(card, mode, source) {
     if (!["fromExpiry", "fromToday"].includes(mode))
       throw new HttpError(400, "续期方式无效");
+    if (!["manual", "batch", "auto"].includes(source))
+      throw new HttpError(400, "续期来源无效");
     const base = mode === "fromExpiry" ? card.expireDate : todayString();
+    const newExpireDate = addCalendarCycle(base, card.cycle, card.cycleUnit);
     return validateCard({
       ...card,
       startDate: base,
-      expireDate: addCalendarCycle(base, card.cycle, card.cycleUnit),
+      expireDate: newExpireDate,
+      renewalHistory: [
+        ...(card.renewalHistory || []),
+        {
+          renewedAt: new Date().toISOString(),
+          source,
+          mode,
+          previousExpireDate: card.expireDate,
+          newExpireDate,
+          cycle: card.cycle,
+          cycleUnit: card.cycleUnit,
+        },
+      ].slice(-MAX_RENEWAL_HISTORY),
     });
   }
   authorize(request) {
@@ -383,7 +403,7 @@ export class EsimStore {
         const noticeKey = `notice:${today}:${card.id}`;
         if (this.get(noticeKey)) continue;
         if (days <= 0 && card.autoRenew) {
-          const renewed = this.renew(card, "fromToday");
+          const renewed = this.renew(card, "fromToday", "auto");
           validCards[validCards.length - 1] = renewed;
           changed = true;
           message = `🔄 看板自动延期\n${detail}新到期日：${renewed.expireDate}\n请确认已完成实际保号操作（短信、充值等）。`;

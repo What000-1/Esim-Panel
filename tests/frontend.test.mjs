@@ -43,11 +43,31 @@ async function browser(t) {
     },
   };
 }
-test("stored HTML remains text in cards and renewal dialog; IDs use delegated events", async (t) => {
+test("stored HTML remains text in cards and renewal dialogs; IDs use delegated events", async (t) => {
   const { w, d, setCards } = await browser(t);
   const name = '<img src=x onerror="window.reviewMarker=1">';
-  setCards([{ ...sample, name }]);
+  const injected = '<img src=x onerror="window.historyMarker=1">';
+  setCards([
+    {
+      ...sample,
+      name,
+      renewalHistory: [
+        {
+          renewedAt: "2026-09-21T08:00:00.000Z",
+          source: injected,
+          mode: "fromExpiry",
+          previousExpireDate: "2026-02-01",
+          newExpireDate: "2026-03-01",
+          cycle: 1,
+          cycleUnit: "month",
+        },
+      ],
+    },
+  ]);
   assert.equal(d.querySelector("#esim-container h2").textContent, name);
+  const historyButton = d.querySelector('[data-action="history"]');
+  assert.equal(historyButton.title, "查看续期记录（1）");
+  assert.equal(historyButton.querySelector("span").textContent, "1");
   w.openRenewModal("one");
   assert(d.getElementById("renewSimInfo").textContent.includes(name));
   assert.equal(d.querySelector("#renewSimInfo img"), null);
@@ -61,7 +81,17 @@ test("stored HTML remains text in cards and renewal dialog; IDs use delegated ev
     d.getElementById("renewModal").classList.contains("hidden"),
     false,
   );
+  w.closeRenewModal();
+  d.querySelector('[data-action="history"]').click();
+  assert.equal(
+    d.getElementById("renewalHistoryModal").classList.contains("hidden"),
+    false,
+  );
+  assert(d.getElementById("renewalHistoryTitle").textContent.includes(name));
+  assert(d.getElementById("renewalHistoryList").textContent.includes(injected));
+  assert.equal(d.querySelector("#renewalHistoryList img"), null);
   assert.equal(w.reviewMarker, undefined);
+  assert.equal(w.historyMarker, undefined);
 });
 test("statistics use full data through filters and reset to zero after last deletion", async (t) => {
   const { d, setCards, w } = await browser(t);

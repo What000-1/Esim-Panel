@@ -190,7 +190,13 @@ async function logout(revoke = true) {
   document
     .getElementById("batchModeBtn")
     .classList.add("bg-white/60", "text-gray-700", "border-gray-200/50");
-  for (const id of ["addModal", "renewModal", "importModal", "exportModal"])
+  for (const id of [
+    "addModal",
+    "renewModal",
+    "renewalHistoryModal",
+    "importModal",
+    "exportModal",
+  ])
     hideDialog(id);
   document.getElementById("addForm").reset();
   for (const id of [
@@ -511,6 +517,13 @@ function renderCards(esims) {
       ? `<div class="bg-blue-50/60 rounded-lg p-2.5 mb-4 text-xs text-gray-700 border border-blue-100/60 break-words leading-relaxed"><i class="fa-regular fa-comment-dots mr-1.5 text-blue-400"></i>${escapeHTML(sim.remark)}</div>`
       : "";
 
+    const renewalHistoryCount = Array.isArray(sim.renewalHistory)
+      ? sim.renewalHistory.length
+      : 0;
+    const renewalHistoryCounter = renewalHistoryCount
+      ? `<span class="absolute -top-1 -right-1 min-w-4 h-4 px-1 rounded-full bg-violet-600 text-white text-[9px] font-bold flex items-center justify-center">${renewalHistoryCount}</span>`
+      : "";
+
     // 自动延期标签
     const autoRenewBadge = sim.autoRenew
       ? '<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-100 text-indigo-700 whitespace-nowrap flex-shrink-0"><i class="fa-solid fa-arrows-rotate mr-0.5"></i>自动延期</span>'
@@ -546,13 +559,17 @@ function renderCards(esims) {
                     <button data-action="renew" data-card-id="${escapeHTML(sim.id)}" class="text-blue-600 hover:text-white hover:bg-blue-500 bg-white w-8 h-8 rounded-full flex items-center justify-center transition-colors shadow-sm" title="续期">
                         <i class="fa-solid fa-rotate-right text-sm"></i>
                     </button>
+                    <button data-action="history" data-card-id="${escapeHTML(sim.id)}" class="relative text-violet-600 hover:text-white hover:bg-violet-500 bg-white w-8 h-8 rounded-full flex items-center justify-center transition-colors shadow-sm" title="查看续期记录（${renewalHistoryCount}）">
+                        <i class="fa-solid fa-clock-rotate-left text-sm"></i>
+                        ${renewalHistoryCounter}
+                    </button>
                     <button data-action="delete" data-card-id="${escapeHTML(sim.id)}" class="text-red-500 hover:text-white hover:bg-red-500 bg-white w-8 h-8 rounded-full flex items-center justify-center transition-colors shadow-sm" title="删除号码">
                         <i class="fa-solid fa-trash-can text-sm"></i>
                     </button>
                 </div>
 
                 <!-- 标题区域 -->
-                <div class="pr-28 mb-3 ${batchMode ? "pl-8" : ""}">
+                <div class="pr-40 mb-3 ${batchMode ? "pl-8" : ""}">
                     <h2 class="text-xl font-bold text-gray-900 truncate" title="${escapeHTML(sim.name)}">${escapeHTML(sim.name)}</h2>
                 </div>
 
@@ -692,6 +709,73 @@ async function confirmRenew() {
   }
 }
 
+function formatRenewalTimestamp(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value || "-";
+  return new Intl.DateTimeFormat("zh-CN", {
+    timeZone: "Asia/Shanghai",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).format(date);
+}
+
+function openRenewalHistory(id) {
+  const sim = esimData.find((item) => item.id === id);
+  if (!sim) return;
+  const history = Array.isArray(sim.renewalHistory)
+    ? [...sim.renewalHistory].reverse()
+    : [];
+  const sourceLabels = {
+    manual: "手动续期",
+    batch: "批量续期",
+    auto: "自动延期",
+  };
+  const modeLabels = {
+    fromExpiry: "基于原到期日",
+    fromToday: "基于续期当天",
+  };
+  document.getElementById("renewalHistoryTitle").textContent =
+    sim.name + " · 续期记录";
+  document.getElementById("renewalHistorySummary").textContent = history.length
+    ? `共 ${history.length} 条续期记录，最多保留最近 20 条`
+    : "尚无续期记录";
+  document.getElementById("renewalHistoryList").innerHTML = history.length
+    ? history
+        .map(
+          (record, index) => `
+            <article class="relative pl-8 pb-5 last:pb-0">
+              <span class="absolute left-1 top-1.5 w-3 h-3 rounded-full bg-violet-500 ring-4 ring-violet-100"></span>
+              <span class="absolute left-[9px] top-5 bottom-0 w-px bg-violet-100 ${index === history.length - 1 ? "hidden" : ""}"></span>
+              <div class="rounded-xl border border-violet-100 bg-violet-50/50 p-4">
+                <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
+                  <span class="text-xs font-bold text-violet-700 bg-white border border-violet-100 rounded-full px-2.5 py-1">${escapeHTML(sourceLabels[record.source] || record.source)}</span>
+                  <time class="text-xs text-gray-500">${escapeHTML(formatRenewalTimestamp(record.renewedAt))}</time>
+                </div>
+                <div class="flex items-center gap-2 text-sm font-semibold text-gray-800 break-all">
+                  <span>${escapeHTML(record.previousExpireDate)}</span>
+                  <i class="fa-solid fa-arrow-right text-violet-400"></i>
+                  <span class="text-violet-700">${escapeHTML(record.newExpireDate)}</span>
+                </div>
+                <p class="mt-2 text-xs text-gray-500">${escapeHTML(modeLabels[record.mode] || record.mode)} · 周期 ${escapeHTML(record.cycle)} ${escapeHTML(getCycleUnitLabel(record.cycleUnit))}</p>
+              </div>
+            </article>`,
+        )
+        .join("")
+    : `<div class="rounded-xl border border-dashed border-gray-300 bg-gray-50/70 px-4 py-10 text-center text-gray-500">
+         <i class="fa-regular fa-clock text-3xl text-gray-300 mb-3"></i>
+         <p class="font-semibold">还没有续期记录</p>
+         <p class="text-xs mt-1">完成手动、批量或自动续期后会显示在这里</p>
+       </div>`;
+  showDialog("renewalHistoryModal");
+}
+
+function closeRenewalHistoryModal() {
+  hideDialog("renewalHistoryModal");
+}
 async function deleteEsim(id) {
   if (!confirm("确定删除这个号码记录？")) return;
   try {
@@ -852,7 +936,7 @@ async function importData() {
 
   try {
     const file = fileInput.files[0];
-    if (file.size > 3 * 1024 * 1024) throw new Error("备份文件超过 3 MB");
+    if (file.size > 12 * 1024 * 1024) throw new Error("备份文件超过 12 MB");
     const text = await file.text();
 
     let importObj;
@@ -1031,6 +1115,7 @@ document.getElementById("esim-container").addEventListener("click", (event) => {
   const actions = {
     edit: openEditModal,
     renew: openRenewModal,
+    history: openRenewalHistory,
     delete: deleteEsim,
   };
   actions[button.dataset.action]?.(button.dataset.cardId);
@@ -1054,6 +1139,7 @@ document.addEventListener("keydown", (event) => {
       const closers = {
         addModal: closeModal,
         renewModal: closeRenewModal,
+        renewalHistoryModal: closeRenewalHistoryModal,
         importModal: closeImportModal,
         exportModal: closeExportModal,
       };

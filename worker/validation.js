@@ -7,6 +7,7 @@ export class HttpError extends Error {
   }
 }
 export const MAX_CARDS = 500;
+export const MAX_RENEWAL_HISTORY = 20;
 export function object(value) {
   if (!value || typeof value !== "object" || Array.isArray(value))
     throw new HttpError(400, "记录必须为非空对象");
@@ -37,6 +38,41 @@ export function validDate(value) {
   } catch (e) {
     throw new HttpError(400, e.message);
   }
+}
+function validTimestamp(value) {
+  if (
+    typeof value !== "string" ||
+    !/^\d{4}-\d{2}-\d{2}T/.test(value) ||
+    !Number.isFinite(Date.parse(value))
+  )
+    throw new HttpError(400, "续期时间无效");
+  return value;
+}
+function validateRenewalRecord(value) {
+  const record = object(value);
+  const source = record.source;
+  const mode = record.mode;
+  if (!["manual", "batch", "auto"].includes(source))
+    throw new HttpError(400, "续期来源无效");
+  if (!["fromExpiry", "fromToday"].includes(mode))
+    throw new HttpError(400, "续期方式无效");
+  if (
+    !Number.isInteger(record.cycle) ||
+    record.cycle < 1 ||
+    record.cycle > 36500
+  )
+    throw new HttpError(400, "续期周期必须为 1–36500 的整数");
+  if (!["day", "month", "quarter", "year"].includes(record.cycleUnit))
+    throw new HttpError(400, "续期周期单位无效");
+  return {
+    renewedAt: validTimestamp(record.renewedAt),
+    source,
+    mode,
+    previousExpireDate: validDate(record.previousExpireDate),
+    newExpireDate: validDate(record.newExpireDate),
+    cycle: record.cycle,
+    cycleUnit: record.cycleUnit,
+  };
 }
 export function validateCard(value, { legacy = false } = {}) {
   const card = object(value);
@@ -80,6 +116,15 @@ export function validateCard(value, { legacy = false } = {}) {
       !Number.isFinite(Date.parse(createdAt)))
   )
     throw new HttpError(400, "添加时间无效");
+  const renewalHistory = card.renewalHistory ?? [];
+  if (
+    !Array.isArray(renewalHistory) ||
+    renewalHistory.length > MAX_RENEWAL_HISTORY
+  )
+    throw new HttpError(
+      400,
+      `续期记录必须为数组，最多 ${MAX_RENEWAL_HISTORY} 条`,
+    );
   // Old timestamp IDs contain genuine history. UUIDs do not.
   if (createdAt === null && /^\d{13}$/.test(id) && Number(id) <= Date.now())
     createdAt = new Date(Number(id)).toISOString();
@@ -95,6 +140,13 @@ export function validateCard(value, { legacy = false } = {}) {
     reminderDays,
     autoRenew: card.autoRenew ?? false,
     createdAt,
+    renewalHistory: renewalHistory.map((record, index) => {
+      try {
+        return validateRenewalRecord(record);
+      } catch (e) {
+        throw new HttpError(400, `第 ${index + 1} 条续期记录：${e.message}`);
+      }
+    }),
   };
 }
 export function validateList(value, options) {
@@ -113,9 +165,9 @@ export function validateList(value, options) {
   });
 }
 export async function readJSON(request) {
-  const limit = 2 * 1024 * 1024;
+  const limit = 8 * 1024 * 1024;
   if (Number(request.headers.get("Content-Length")) > limit)
-    throw new HttpError(413, "请求超过 2 MB");
+    throw new HttpError(413, "请求超过 8 MB");
   if (!request.body) throw new HttpError(400, "缺少 JSON 数据");
   const reader = request.body.getReader();
   const chunks = [];
@@ -126,7 +178,7 @@ export async function readJSON(request) {
     size += value.length;
     if (size > limit) {
       await reader.cancel();
-      throw new HttpError(413, "请求超过 2 MB");
+      throw new HttpError(413, "请求超过 8 MB");
     }
     chunks.push(value);
   }

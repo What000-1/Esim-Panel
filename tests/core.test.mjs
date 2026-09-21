@@ -5,6 +5,16 @@ import { validateList, validateCard } from "../worker/validation.js";
 import { splitMessage, sendTelegram } from "../worker/telegram.js";
 import { fixture, sample } from "./helpers.mjs";
 
+const renewalRecord = {
+  renewedAt: "2026-09-21T08:00:00.000Z",
+  source: "manual",
+  mode: "fromExpiry",
+  previousExpireDate: "2026-01-01",
+  newExpireDate: "2026-02-01",
+  cycle: 1,
+  cycleUnit: "month",
+};
+
 test("calendar dates clamp month ends, leap days and quarter/year boundaries", () => {
   assert.equal(addCalendarCycle("2026-01-31", 1, "month"), "2026-02-28");
   assert.equal(addCalendarCycle("2024-01-31", 1, "month"), "2024-02-29");
@@ -29,10 +39,21 @@ test("shared validation rejects malformed data and duplicates, preserving 0 remi
     { ...sample, reminderDays: -1 },
     { ...sample, cycleUnit: "decade" },
     { ...sample, expireDate: "2026-02-30" },
+    { ...sample, renewalHistory: "invalid" },
+    {
+      ...sample,
+      renewalHistory: [{ ...renewalRecord, source: "unknown" }],
+    },
   ])
     assert.throws(() => validateList([value]));
   assert.throws(() => validateList([sample, sample]), /第 2 条/);
-  assert.equal(validateCard({ ...sample, reminderDays: 0 }).reminderDays, 0);
+  const normalized = validateCard({ ...sample, reminderDays: 0 });
+  assert.equal(normalized.reminderDays, 0);
+  assert.deepEqual(normalized.renewalHistory, []);
+  assert.deepEqual(
+    validateCard({ ...sample, renewalHistory: [renewalRecord] }).renewalHistory,
+    [renewalRecord],
+  );
 });
 test("concurrent inserts retain every record; stale edit/delete/import/batch reject atomically", async (t) => {
   const f = await fixture();
@@ -150,6 +171,58 @@ test("creation, update and batch all validate and renew using shared calendar ru
   );
   assert.equal(f.store.cards()[0].expireDate, "2026-02-28");
   assert.equal(f.store.cards()[0].startDate, "2026-01-31");
+  assert.deepEqual(
+    f.store.cards()[0].renewalHistory.map((item) => ({
+      source: item.source,
+      mode: item.mode,
+      previousExpireDate: item.previousExpireDate,
+      newExpireDate: item.newExpireDate,
+    })),
+    [
+      {
+        source: "batch",
+        mode: "fromExpiry",
+        previousExpireDate: "2026-01-31",
+        newExpireDate: "2026-02-28",
+      },
+    ],
+  );
+  assert.equal(
+    (
+      await f.request("/api/esims", "PUT", {
+        id: "one",
+        renewMode: "fromExpiry",
+      })
+    ).status,
+    200,
+  );
+  const renewed = f.store.cards()[0];
+  assert.equal(renewed.renewalHistory.length, 2);
+  assert.equal(renewed.renewalHistory[1].source, "manual");
+  assert.equal(renewed.renewalHistory[1].previousExpireDate, "2026-02-28");
+  assert.equal(renewed.renewalHistory[1].newExpireDate, "2026-03-28");
+  assert.equal(
+    (
+      await f.request("/api/esims", "PUT", {
+        id: "one",
+        name: "Renamed",
+        renewalHistory: [],
+      })
+    ).status,
+    200,
+  );
+  assert.equal(f.store.cards()[0].renewalHistory.length, 2);
+});
+
+test("renewal history keeps only the newest twenty records", async (t) => {
+  const f = await fixture([sample]);
+  t.after(f.close);
+  let card = validateCard(sample);
+  for (let index = 0; index < 25; index++)
+    card = f.store.renew(card, "fromExpiry", "manual");
+  assert.equal(card.renewalHistory.length, 20);
+  assert.equal(card.renewalHistory.at(-1).newExpireDate, card.expireDate);
+  assert.equal(card.renewalHistory[0].previousExpireDate, "2026-07-01");
 });
 test("legacy migration keeps valid rows, quarantines invalid/duplicate rows, and preserves creation history", async (t) => {
   const f = await fixture([
@@ -263,6 +336,9 @@ test("notifications persist with renewal, de-duplicate cron and continue past in
   assert.equal((await f.request("/internal/scheduled", "POST")).status, 200);
   assert.equal(f.store.list("notice:").length, 10);
   assert(f.state.alarmAt);
+  assert.equal(f.store.get("card:c0").renewalHistory.length, 1);
+  assert.equal(f.store.get("card:c0").renewalHistory[0].source, "auto");
+  assert.equal(f.store.get("card:c0").renewalHistory[0].mode, "fromToday");
   assert.equal(
     f.store.get("card:c0").expireDate,
     addCalendarCycle(todayString(), 1, "month"),

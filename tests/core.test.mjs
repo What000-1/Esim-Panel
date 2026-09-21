@@ -64,6 +64,39 @@ test("concurrent inserts retain every record; stale edit/delete/import/batch rej
   assert.equal(f.store.cards()[0].name, "fresh");
   assert.equal(f.store.cards().length, 20);
 });
+test("revision headers tolerate weak ETags and support a stable custom revision", async (t) => {
+  const f = await fixture([sample]);
+  t.after(f.close);
+  const loaded = await f.request();
+  const initialRevision = String(f.store.revision());
+  assert.equal(loaded.headers.get("X-Data-Revision"), initialRevision);
+  assert.equal(loaded.headers.get("ETag"), `"${initialRevision}"`);
+  assert.equal(
+    (
+      await f.request(
+        "/api/esims",
+        "PUT",
+        { id: "one", name: "weak-etag" },
+        { revision: `W/"${initialRevision}"` },
+      )
+    ).status,
+    200,
+  );
+  const currentRevision = String(f.store.revision());
+  const updated = await f.request(
+    "/api/esims",
+    "PUT",
+    { id: "one", name: "custom-header" },
+    { revision: null, "X-Data-Revision": currentRevision },
+  );
+  assert.equal(updated.status, 200);
+  assert.equal(
+    updated.headers.get("X-Data-Revision"),
+    String(f.store.revision()),
+  );
+  assert.equal(f.store.cards()[0].name, "custom-header");
+});
+
 test("invalid import leaves original data intact and missing revision is rejected", async (t) => {
   const f = await fixture([sample]);
   t.after(f.close);

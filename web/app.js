@@ -47,8 +47,13 @@ function getAuthHeaders() {
     "Content-Type": "application/json",
     Authorization:
       "Bearer " + (sessionStorage.getItem("esim_auth_token") || ""),
-    ...(dataRevision ? { "If-Match": dataRevision } : {}),
   };
+}
+function normalizeRevision(value) {
+  if (!value) return null;
+  const match = /^(?:W\/)?"(\d+)"$/.exec(value.trim());
+  if (match) return match[1];
+  return /^\d+$/.test(value.trim()) ? value.trim() : null;
 }
 async function apiRequest(url, options = {}) {
   const response = await fetch(url, options);
@@ -63,11 +68,17 @@ async function mutate(url, method, body, revision = dataRevision) {
   if (mutationBusy) throw new Error("上一项操作尚未完成，请稍候");
   mutationBusy = true;
   try {
+    const normalizedRevision = normalizeRevision(revision);
     return await apiRequest(url, {
       method,
       headers: {
         ...getAuthHeaders(),
-        ...(revision ? { "If-Match": revision } : {}),
+        ...(normalizedRevision
+          ? {
+              "X-Data-Revision": normalizedRevision,
+              "If-Match": `"${normalizedRevision}"`,
+            }
+          : {}),
       },
       body: JSON.stringify(body),
     });
@@ -400,7 +411,9 @@ async function fetchEsimData() {
     )
       return;
     esimData = cards;
-    dataRevision = response.headers.get("ETag");
+    dataRevision = normalizeRevision(
+      response.headers.get("X-Data-Revision") || response.headers.get("ETag"),
+    );
     selectedIds = new Set(
       [...selectedIds].filter((id) => cards.some((card) => card.id === id)),
     );

@@ -12,6 +12,16 @@ import { sendTelegram, telegramConfig, splitMessage } from "./telegram.js";
 const json = (value, status = 200, headers = {}) =>
   Response.json(value, { status, headers });
 const now = () => Date.now();
+const revisionHeaders = (revision) => ({
+  ETag: `"${revision}"`,
+  "X-Data-Revision": String(revision),
+});
+function normalizeRevision(value) {
+  if (!value) return null;
+  const match = /^(?:W\/)?"(\d+)"$/.exec(value.trim());
+  if (match) return match[1];
+  return /^\d+$/.test(value.trim()) ? value.trim() : null;
+}
 
 // Network awaits permit event interleaving, so every entry point uses this queue.
 export class EsimStore {
@@ -177,15 +187,17 @@ export class EsimStore {
         ).length,
       });
     if (path === "/api/esims" && request.method === "GET")
-      return json(this.cards(), 200, { ETag: `"${this.revision()}"` });
+      return json(this.cards(), 200, revisionHeaders(this.revision()));
     if (!["/api/esims", "/api/esims/import", "/api/esims/batch"].includes(path))
       throw new HttpError(404, "接口不存在");
     if (!["POST", "PUT", "DELETE"].includes(request.method))
       throw new HttpError(405, "请求方法不支持");
     if (!(path === "/api/esims" && request.method === "POST")) {
-      const revision = request.headers.get("If-Match");
+      const revision =
+        request.headers.get("X-Data-Revision") ||
+        request.headers.get("If-Match");
       if (!revision) throw new HttpError(428, "请先加载最新数据再保存");
-      if (revision !== `"${this.revision()}"`)
+      if (normalizeRevision(revision) !== String(this.revision()))
         throw new HttpError(409, "数据已被其他页面更新，请刷新后重新操作");
     }
     const body = await readJSON(request);
@@ -247,7 +259,11 @@ export class EsimStore {
     }
     cards = validateList(cards);
     this.transaction(() => this.saveCards(cards));
-    return json({ success: true, revision: this.revision() });
+    return json(
+      { success: true, revision: this.revision() },
+      200,
+      revisionHeaders(this.revision()),
+    );
   }
   renew(card, mode) {
     if (!["fromExpiry", "fromToday"].includes(mode))

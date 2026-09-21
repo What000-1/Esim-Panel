@@ -22,9 +22,9 @@ function responseHeaders(response, origin) {
     );
     headers.set(
       "Access-Control-Allow-Headers",
-      "Content-Type, Authorization, If-Match",
+      "Content-Type, Authorization, If-Match, X-Data-Revision",
     );
-    headers.set("Access-Control-Expose-Headers", "ETag");
+    headers.set("Access-Control-Expose-Headers", "ETag, X-Data-Revision");
   }
   return new Response(response.body, { status: response.status, headers });
 }

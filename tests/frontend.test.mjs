@@ -29,7 +29,9 @@ async function browser(t) {
         failedNotifications: 0,
       });
     if (url.endsWith("/logout")) return Response.json({ success: true });
-    return Response.json([], { headers: { ETag: '"1"' } });
+    return Response.json([], {
+      headers: { ETag: '"1"', "X-Data-Revision": "1" },
+    });
   };
   vm.runInContext(assets["/app.js"].body, dom.getInternalVMContext());
   return {
@@ -187,6 +189,14 @@ test("CORS rejects lookalike domains and public worker cannot reach internal Cro
     options.headers.get("Access-Control-Allow-Origin"),
     "https://panel.invalid",
   );
+  assert.match(
+    options.headers.get("Access-Control-Allow-Headers"),
+    /X-Data-Revision/,
+  );
+  assert.match(
+    options.headers.get("Access-Control-Expose-Headers"),
+    /X-Data-Revision/,
+  );
   assert.equal(
     (
       await worker.fetch(
@@ -196,6 +206,40 @@ test("CORS rejects lookalike domains and public worker cannot reach internal Cro
     ).status,
     404,
   );
+});
+
+test("editing sends the stable data revision when an intermediary weakens ETag", async (t) => {
+  const { w, d } = await browser(t);
+  w.sessionStorage.setItem("esim_auth_token", "local");
+  let writeHeaders;
+  let card = sample;
+  w.fetch = async (url, options = {}) => {
+    if (url.endsWith("/status"))
+      return Response.json({
+        quarantineCount: 0,
+        pendingNotifications: 0,
+        failedNotifications: 0,
+      });
+    if (options.method === "PUT") {
+      writeHeaders = options.headers;
+      card = { ...card, ...JSON.parse(options.body) };
+      return Response.json(
+        { success: true, revision: 8 },
+        { headers: { ETag: 'W/"8"', "X-Data-Revision": "8" } },
+      );
+    }
+    return Response.json([card], {
+      headers: { ETag: 'W/"7"', "X-Data-Revision": "7" },
+    });
+  };
+  await w.fetchEsimData();
+  assert.equal(w.eval("dataRevision"), "7");
+  w.openEditModal("one");
+  d.getElementById("simName").value = "Edited";
+  await w.submitForm({ preventDefault() {} });
+  assert.equal(writeHeaders["X-Data-Revision"], "7");
+  assert.equal(writeHeaders["If-Match"], '"7"');
+  assert.equal(w.eval("editingRevision"), "7");
 });
 
 test("old encrypted backups decode, overwrite requires confirmation, and stale import snapshots remain stale", async (t) => {

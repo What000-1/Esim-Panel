@@ -233,7 +233,9 @@ export class EsimStore {
           ? cards.filter((card) => !ids.has(card.id))
           : cards.map((card) =>
               ids.has(card.id)
-                ? this.renew(card, body.renewMode, "batch")
+                ? card.noRenewal
+                  ? card
+                  : this.renew(card, body.renewMode, "batch")
                 : card,
             );
     } else if (request.method === "POST") {
@@ -271,6 +273,7 @@ export class EsimStore {
     );
   }
   renew(card, mode, source) {
+    if (card.noRenewal) throw new HttpError(400, "该卡无需保号，不能续期");
     if (!["fromExpiry", "fromToday"].includes(mode))
       throw new HttpError(400, "续期方式无效");
     if (!["manual", "batch", "auto"].includes(source))
@@ -397,6 +400,7 @@ export class EsimStore {
       try {
         const card = validateCard(raw);
         validCards.push(card);
+        if (card.noRenewal) continue;
         const days = daysBetween(today, card.expireDate);
         const detail = `📱 ${card.name}\n📞 ${card.number || "未填写"}\n${card.remark ? "📝 " + card.remark + "\n" : ""}`;
         let message;

@@ -441,6 +441,30 @@
 
         <form id="addForm" onsubmit="submitForm(event)">
           <div class="mb-4">
+            <label
+              for="simBrand"
+              class="block text-gray-700 text-sm font-bold mb-2"
+              >海外电话卡 (选填)</label
+            >
+            <select
+              id="simBrand"
+              aria-label="海外电话卡品牌"
+              class="w-full px-4 py-2 rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white/80"
+            >
+              <option value="">自定义 / 未列出</option>
+            </select>
+            <p class="text-xs text-gray-500 mt-1" id="simBrandHint">
+              选择后填入名称、保号周期和规则；可自行调整。
+            </p>
+            <a
+              id="simBrandSource"
+              class="hidden text-xs text-blue-600 hover:underline mt-1"
+              target="_blank"
+              rel="noopener noreferrer"
+              >查看 BankNav 原条目</a
+            >
+          </div>
+          <div class="mb-4">
             <label class="block text-gray-700 text-sm font-bold mb-2"
               >卡片名称 (必填)</label
             >
@@ -479,11 +503,11 @@
               aria-label="开始日期"
               required
               class="w-full px-4 py-2 rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white/80"
-              onchange="autoCalcExpireDate()"
+              onchange="autoCalcExpireDate(event)"
             />
             <p class="text-xs text-gray-400 mt-1">默认为今天，可自行修改</p>
           </div>
-          <div class="mb-4">
+          <div class="mb-4" id="simCycleGroup">
             <label class="block text-gray-700 text-sm font-bold mb-2"
               >保号周期 (必填)</label
             >
@@ -498,12 +522,12 @@
                 required
                 placeholder="例如：180"
                 class="min-w-0 flex-1 px-4 py-2 rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white/80"
-                oninput="autoCalcExpireDate()"
+                oninput="autoCalcExpireDate(event)"
               />
               <select
                 id="simCycleUnit"
                 aria-label="周期单位"
-                onchange="autoCalcExpireDate()"
+                onchange="autoCalcExpireDate(event)"
                 class="px-3 py-2 rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white/80 font-semibold text-sm"
               >
                 <option value="day">天</option>
@@ -513,7 +537,7 @@
               </select>
             </div>
           </div>
-          <div class="mb-4">
+          <div class="mb-4" id="simReminderGroup">
             <label class="block text-gray-700 text-sm font-bold mb-2"
               >提前提醒天数 (选填)</label
             >
@@ -544,7 +568,7 @@
               class="w-full px-4 py-2 rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white/80"
             />
           </div>
-          <div class="mb-4">
+          <div class="mb-4" id="simExpireGroup">
             <label class="block text-gray-700 text-sm font-bold mb-2"
               >本次到期日 (必填)</label
             >
@@ -560,6 +584,7 @@
             <p class="text-xs text-gray-400 mt-1" id="expireHint"></p>
           </div>
           <div
+            id="simAutoRenewGroup"
             class="mb-6 flex items-center justify-between bg-gradient-to-r from-blue-50/80 to-indigo-50/80 rounded-xl px-4 py-3.5 border border-blue-100/60"
           >
             <div class="flex items-center gap-2">

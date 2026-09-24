@@ -242,7 +242,12 @@ function filterAndRender() {
     filtered = esimData.filter((sim) => {
       const name = (sim.name || "").toLowerCase();
       const number = (sim.number || "").toLowerCase();
-      return name.includes(query) || number.includes(query);
+      const brand = (
+        PHONE_CARDS.find((card) => card.id === sim.brandId)?.name || ""
+      ).toLowerCase();
+      return (
+        name.includes(query) || number.includes(query) || brand.includes(query)
+      );
     });
   }
   renderCards(filtered);
@@ -274,7 +279,9 @@ function sortEsims(esims) {
   return [...esims].sort((a, b) => {
     let cmp = 0;
     if (currentSort.key === "remainDays")
-      cmp = a.expireDate.localeCompare(b.expireDate);
+      cmp = (a.expireDate || "9999-12-31").localeCompare(
+        b.expireDate || "9999-12-31",
+      );
     if (currentSort.key === "name") cmp = a.name.localeCompare(b.name, "zh-CN");
     if (currentSort.key === "addTime") {
       if (!a.createdAt || !b.createdAt)
@@ -361,7 +368,10 @@ function updateSelectedCount() {
 
 async function batchRenew() {
   if (selectedIds.size === 0) return alert("请先选择要续期的卡片");
-  const selected = esimData.filter((s) => selectedIds.has(s.id));
+  const selected = esimData.filter(
+    (s) => selectedIds.has(s.id) && !s.noRenewal,
+  );
+  if (!selected.length) return alert("选中的卡片均无需保号，无需续期");
   const mode = await showBatchRenewDialog(selected);
   if (!mode) return;
   try {
@@ -483,7 +493,8 @@ function renderCards(esims) {
   const cardNodes = [];
 
   sorted.forEach((sim) => {
-    const diffDays = daysBetween(today, sim.expireDate);
+    const noRenewal = sim.noRenewal === true;
+    const diffDays = noRenewal ? Infinity : daysBetween(today, sim.expireDate);
     const reminderDays = sim.reminderDays ?? 15;
 
     let statusColor = "bg-green-500";
@@ -491,7 +502,10 @@ function renderCards(esims) {
     let badgeClass = "bg-green-100 text-green-800";
     let icon = "fa-check-circle text-green-500";
 
-    if (diffDays <= 0) {
+    if (noRenewal) {
+      statusText = "无需保号";
+      badgeClass = "bg-emerald-100 text-emerald-800";
+    } else if (diffDays <= 0) {
       statusColor = "bg-gray-500";
       statusText = diffDays === 0 ? "今日到期" : "已过期";
       badgeClass = "bg-gray-100 text-gray-800";
@@ -509,7 +523,9 @@ function renderCards(esims) {
     } else {
     }
 
-    let percent = Math.min(Math.max((diffDays / cycleDays(sim)) * 100, 0), 100);
+    let percent = noRenewal
+      ? 100
+      : Math.min(Math.max((diffDays / cycleDays(sim)) * 100, 0), 100);
     const flagEmoji = getCountryFlag(sim.number);
 
     // 渲染备注区域
@@ -525,19 +541,26 @@ function renderCards(esims) {
       : "";
 
     // 自动延期标签
-    const autoRenewBadge = sim.autoRenew
-      ? '<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-100 text-indigo-700 whitespace-nowrap flex-shrink-0"><i class="fa-solid fa-arrows-rotate mr-0.5"></i>自动延期</span>'
-      : "";
+    const autoRenewBadge =
+      !noRenewal && sim.autoRenew
+        ? '<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-100 text-indigo-700 whitespace-nowrap flex-shrink-0"><i class="fa-solid fa-arrows-rotate mr-0.5"></i>自动延期</span>'
+        : "";
 
     // 周期显示
     const cycleUnit = sim.cycleUnit || "day";
-    const cycleLabel = sim.cycle
-      ? sim.cycle + " " + getCycleUnitLabel(cycleUnit)
-      : "-";
+    const cycleLabel = noRenewal
+      ? "无需保号"
+      : sim.cycle
+        ? sim.cycle + " " + getCycleUnitLabel(cycleUnit)
+        : "-";
+    const brand = PHONE_CARDS.find((card) => card.id === sim.brandId);
+    const brandHTML = brand
+      ? `<p class="text-xs text-gray-500 mb-3">${escapeHTML(brand.region)} · ${escapeHTML(brand.name)}</p>`
+      : "";
 
     // 提醒天数标签
     const reminderLabel =
-      reminderDays !== 15
+      !noRenewal && reminderDays !== 15
         ? `<span class="text-[10px] bg-amber-50 text-amber-700 px-1.5 py-0.5 rounded-full font-semibold border border-amber-100/60">提前${escapeHTML(reminderDays)}天提醒</span>`
         : "";
 
@@ -546,6 +569,20 @@ function renderCards(esims) {
     const checkboxHTML = `<div class="card-checkbox absolute top-4 left-4 z-20">
             <input type="checkbox" class="card-select-input w-5 h-5 rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer" ${isSelected ? "checked" : ""} data-select-id="${escapeHTML(sim.id)}" aria-label="选择 ${escapeHTML(sim.name)}">
         </div>`;
+
+    const timingHTML = noRenewal
+      ? '<p class="text-sm font-semibold text-emerald-700">无需设置保号期限</p>'
+      : `<div class="flex justify-between text-sm font-semibold mb-2">
+                        <span class="text-gray-700">剩余时间</span>
+                        <span class="text-gray-900 font-bold ${diffDays <= reminderDays && diffDays > 0 ? "text-red-600" : ""}">${diffDays < 0 ? "0" : diffDays} 天</span>
+                    </div>
+                    <div class="w-full bg-gray-200/60 rounded-full h-3 mb-2 shadow-inner">
+                        <div class="${statusColor} h-3 rounded-full shadow-sm transition-all duration-1000" style="width: ${percent}%"></div>
+                    </div>
+                    <div class="flex justify-between text-xs text-gray-500 mt-2 font-medium">
+                        <span><i class="fa-solid fa-arrows-rotate mr-1"></i>周期: ${escapeHTML(cycleLabel)}</span>
+                        <span>到期日: ${escapeHTML(sim.expireDate)}</span>
+                    </div>`;
 
     const cardHTML = `
             <div class="glass-card rounded-2xl p-6 relative overflow-hidden group flex flex-col h-full ${isSelected ? "card-selected" : ""}" data-id="${escapeHTML(sim.id)}">
@@ -556,9 +593,13 @@ function renderCards(esims) {
                     <button data-action="edit" data-card-id="${escapeHTML(sim.id)}" class="text-green-600 hover:text-white hover:bg-green-500 bg-white w-8 h-8 rounded-full flex items-center justify-center transition-colors shadow-sm" title="编辑卡片资料">
                         <i class="fa-solid fa-pen text-sm"></i>
                     </button>
-                    <button data-action="renew" data-card-id="${escapeHTML(sim.id)}" class="text-blue-600 hover:text-white hover:bg-blue-500 bg-white w-8 h-8 rounded-full flex items-center justify-center transition-colors shadow-sm" title="续期">
+                    ${
+                      noRenewal
+                        ? ""
+                        : `<button data-action="renew" data-card-id="${escapeHTML(sim.id)}" class="text-blue-600 hover:text-white hover:bg-blue-500 bg-white w-8 h-8 rounded-full flex items-center justify-center transition-colors shadow-sm" title="续期">
                         <i class="fa-solid fa-rotate-right text-sm"></i>
-                    </button>
+                    </button>`
+                    }
                     <button data-action="history" data-card-id="${escapeHTML(sim.id)}" class="relative text-violet-600 hover:text-white hover:bg-violet-500 bg-white w-8 h-8 rounded-full flex items-center justify-center transition-colors shadow-sm" title="查看续期记录（${renewalHistoryCount}）">
                         <i class="fa-solid fa-clock-rotate-left text-sm"></i>
                         ${renewalHistoryCounter}
@@ -572,6 +613,7 @@ function renderCards(esims) {
                 <div class="pr-40 mb-3 ${batchMode ? "pl-8" : ""}">
                     <h2 class="text-xl font-bold text-gray-900 truncate" title="${escapeHTML(sim.name)}">${escapeHTML(sim.name)}</h2>
                 </div>
+                ${brandHTML}
 
                 <!-- 号码与状态区域 -->
                 <div class="flex justify-between items-center mb-4 gap-2">
@@ -594,17 +636,7 @@ function renderCards(esims) {
 
                 <!-- 底部进度条区域 -->
                 <div class="mt-auto">
-                    <div class="flex justify-between text-sm font-semibold mb-2">
-                        <span class="text-gray-700">剩余时间</span>
-                        <span class="text-gray-900 font-bold ${diffDays <= reminderDays && diffDays > 0 ? "text-red-600" : ""}">${diffDays < 0 ? "0" : diffDays} 天</span>
-                    </div>
-                    <div class="w-full bg-gray-200/60 rounded-full h-3 mb-2 shadow-inner">
-                        <div class="${statusColor} h-3 rounded-full shadow-sm transition-all duration-1000" style="width: ${percent}%"></div>
-                    </div>
-                    <div class="flex justify-between text-xs text-gray-500 mt-2 font-medium">
-                        <span><i class="fa-solid fa-arrows-rotate mr-1"></i>周期: ${escapeHTML(cycleLabel)}</span>
-                        <span>到期日: ${escapeHTML(sim.expireDate)}</span>
-                    </div>
+                    ${timingHTML}
                 </div>
             </div>
         `;
@@ -637,18 +669,27 @@ async function submitForm(e) {
   btn.disabled = true;
   btn.textContent = "保存中...";
   const payload = {
+    brandId: document.getElementById("simBrand").value,
+    noRenewal:
+      document.getElementById("simBrand").selectedOptions[0]?.dataset
+        .noRenewal === "true",
     name: document.getElementById("simName").value,
     number: document.getElementById("simNumber").value,
     startDate: document.getElementById("simStartDate").value,
-    expireDate: document.getElementById("simExpire").value,
-    cycle: Number(document.getElementById("simCycle").value),
+    expireDate: document.getElementById("simExpire").value || null,
+    cycle:
+      document.getElementById("simCycle").value === ""
+        ? null
+        : Number(document.getElementById("simCycle").value),
     cycleUnit: document.getElementById("simCycleUnit").value,
     reminderDays:
       document.getElementById("simReminderDays").value === ""
         ? 15
         : Number(document.getElementById("simReminderDays").value),
     remark: document.getElementById("simRemark").value,
-    autoRenew: document.getElementById("simAutoRenew").checked,
+    autoRenew:
+      document.getElementById("simAutoRenew").checked &&
+      !document.getElementById("simAutoRenew").disabled,
     ...(editingId ? { id: editingId } : {}),
   };
   try {
@@ -786,21 +827,108 @@ async function deleteEsim(id) {
   }
 }
 
-function autoCalcExpireDate() {
+function autoCalcExpireDate(trigger) {
+  if (selectedPhoneCard()?.noRenewal) return;
   const cycle = Number(document.getElementById("simCycle").value);
   const unit = document.getElementById("simCycleUnit").value;
   const start = document.getElementById("simStartDate").value;
+  const preset = selectedPhoneCard();
+  const cycleWasEdited = ["simCycle", "simCycleUnit"].includes(
+    trigger?.target?.id,
+  );
+  const useInitial =
+    preset?.initialCycle &&
+    !cycleWasEdited &&
+    cycle === preset.cycle &&
+    unit === preset.unit;
   try {
     document.getElementById("simExpire").value = addCalendarCycle(
       start,
-      cycle,
-      unit,
+      useInitial ? preset.initialCycle : cycle,
+      useInitial ? preset.initialUnit : unit,
     );
-    document.getElementById("expireHint").textContent =
-      "已按日历计算，月末取目标月最后一天。";
+    document.getElementById("expireHint").textContent = useInitial
+      ? "初始有效期按 4 年计算，后续按每年续期。"
+      : "已按日历计算，月末取目标月最后一天。";
   } catch {
     document.getElementById("expireHint").textContent =
       "请填写有效的开始日期和正整数周期。";
+  }
+}
+
+function selectedPhoneCard() {
+  return PHONE_CARDS.find(
+    (card) => card.id === document.getElementById("simBrand").value,
+  );
+}
+
+function setNoRenewalFields(noRenewal) {
+  for (const id of [
+    "simCycleGroup",
+    "simExpireGroup",
+    "simReminderGroup",
+    "simAutoRenewGroup",
+  ])
+    document.getElementById(id).classList.toggle("hidden", noRenewal);
+  document.getElementById("simCycle").required = !noRenewal;
+  document.getElementById("simExpire").required = !noRenewal;
+  document.getElementById("simAutoRenew").disabled = noRenewal;
+  if (noRenewal) {
+    document.getElementById("simCycle").value = "";
+    document.getElementById("simExpire").value = "";
+    document.getElementById("simAutoRenew").checked = false;
+  }
+}
+
+function updatePhoneCardHint() {
+  const preset = selectedPhoneCard();
+  const hint = document.getElementById("simBrandHint");
+  const source = document.getElementById("simBrandSource");
+  hint.textContent = preset
+    ? preset.rule +
+      (!preset.cycle && !preset.noRenewal ? " 请手动填写保号周期。" : "")
+    : "选择后填入名称、保号周期和规则；可自行调整。";
+  source.classList.toggle("hidden", !preset);
+  if (preset) source.href = preset.sourceUrl;
+  else source.removeAttribute("href");
+  setNoRenewalFields(!!preset?.noRenewal);
+}
+
+function applyPhoneCardPreset() {
+  const preset = selectedPhoneCard();
+  const name = document.getElementById("simName");
+  const previous = PHONE_CARDS.find(
+    (card) => card.id === name.dataset.presetBrand,
+  );
+  if (preset && (!name.value || name.value === previous?.name))
+    name.value = preset.name;
+  name.dataset.presetBrand = preset?.id || "";
+  updatePhoneCardHint();
+  if (!preset) return;
+  document.getElementById("simRemark").value = preset.rule;
+  document.getElementById("simCycle").value = preset.cycle ?? "";
+  document.getElementById("simCycleUnit").value = preset.unit || "day";
+  document.getElementById("simExpire").value = "";
+  document.getElementById("expireHint").textContent = "";
+  if (preset.cycle) autoCalcExpireDate();
+}
+
+function populatePhoneCards() {
+  const select = document.getElementById("simBrand");
+  const groups = new Map();
+  for (const card of PHONE_CARDS) {
+    let group = groups.get(card.region);
+    if (!group) {
+      group = document.createElement("optgroup");
+      group.label = card.region;
+      select.append(group);
+      groups.set(card.region, group);
+    }
+    const option = document.createElement("option");
+    option.value = card.id;
+    option.textContent = card.name;
+    option.dataset.noRenewal = String(!!card.noRenewal);
+    group.append(option);
   }
 }
 
@@ -813,6 +941,8 @@ function openModal() {
   document.getElementById("modalTitle").innerHTML =
     '<i class="fa-solid fa-file-circle-plus text-blue-600"></i> 新增 eSIM';
   document.getElementById("addForm").reset();
+  document.getElementById("simName").dataset.presetBrand = "";
+  updatePhoneCardHint();
   document.getElementById("simStartDate").value = getTodayStr();
   document.getElementById("simCycleUnit").value = "day";
   document.getElementById("simAutoRenew").checked = false;
@@ -832,10 +962,13 @@ function openEditModal(id) {
     '<i class="fa-solid fa-pen-to-square text-green-600"></i> 编辑 eSIM';
 
   document.getElementById("simName").value = sim.name || "";
+  document.getElementById("simBrand").value = sim.brandId || "";
+  document.getElementById("simName").dataset.presetBrand = sim.brandId || "";
+  updatePhoneCardHint();
   document.getElementById("simNumber").value = sim.number || "";
   document.getElementById("simStartDate").value =
     sim.startDate || getTodayStr();
-  document.getElementById("simCycle").value = sim.cycle || "";
+  document.getElementById("simCycle").value = sim.cycle ?? "";
   document.getElementById("simCycleUnit").value = sim.cycleUnit || "day";
   document.getElementById("simRemark").value = sim.remark || "";
   document.getElementById("simExpire").value = sim.expireDate || "";
@@ -1013,6 +1146,10 @@ function renderStats() {
     dangerCount = 0;
   const today = todayString();
   for (const sim of esimData) {
+    if (sim.noRenewal) {
+      safeCount++;
+      continue;
+    }
     const days = daysBetween(today, sim.expireDate);
     const reminder = sim.reminderDays ?? 15;
     if (days <= reminder) dangerCount++;
@@ -1109,6 +1246,10 @@ async function retryNotifications() {
     alert(e.message);
   }
 }
+populatePhoneCards();
+document
+  .getElementById("simBrand")
+  .addEventListener("change", applyPhoneCardPreset);
 document.getElementById("esim-container").addEventListener("click", (event) => {
   const button = event.target.closest("[data-action]");
   if (!button) return;
@@ -1155,7 +1296,9 @@ document.addEventListener("keydown", (event) => {
   if (event.key === "Tab" && modal) {
     const items = [
       ...modal.querySelectorAll('button,input,select,textarea,[tabindex="0"]'),
-    ].filter((el) => !el.disabled && el.type !== "hidden");
+    ].filter(
+      (el) => !el.disabled && el.type !== "hidden" && !el.closest(".hidden"),
+    );
     const first = items[0],
       last = items.at(-1);
     if (event.shiftKey && document.activeElement === first) {

@@ -55,6 +55,35 @@ test("shared validation rejects malformed data and duplicates, preserving 0 remi
     [renewalRecord],
   );
 });
+test("no-renewal cards persist without an expiry and never generate reminders", async (t) => {
+  const f = await fixture();
+  t.after(f.close);
+  const response = await f.request("/api/esims", "POST", {
+    ...sample,
+    brandId: "爱沙尼亚:eSIM Plus",
+    noRenewal: true,
+    expireDate: null,
+    cycle: null,
+    autoRenew: true,
+  });
+  assert.equal(response.status, 200);
+  const card = f.store.cards()[0];
+  assert.equal(card.brandId, "爱沙尼亚:eSIM Plus");
+  assert.equal(card.expireDate, null);
+  assert.equal(card.cycle, null);
+  assert.equal(card.autoRenew, false);
+  assert.equal(
+    (
+      await f.request("/api/esims", "PUT", {
+        id: card.id,
+        renewMode: "fromToday",
+      })
+    ).status,
+    400,
+  );
+  assert.equal((await f.request("/internal/scheduled", "POST")).status, 200);
+  assert.equal(f.store.list("notice:").length, 0);
+});
 test("concurrent inserts retain every record; stale edit/delete/import/batch reject atomically", async (t) => {
   const f = await fixture();
   t.after(f.close);

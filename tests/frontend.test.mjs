@@ -6,6 +6,7 @@ import assets from "../worker/generated-ui.js";
 import worker from "../worker/entry.js";
 import { todayString, addCalendarCycle } from "../shared/dates.js";
 import { sample } from "./helpers.mjs";
+import { PHONE_CARDS } from "../shared/phone-cards.js";
 async function browser(t) {
   const dom = new JSDOM(assets["/"].body, {
     url: "https://panel.invalid",
@@ -92,6 +93,62 @@ test("stored HTML remains text in cards and renewal dialogs; IDs use delegated e
   assert.equal(d.querySelector("#renewalHistoryList img"), null);
   assert.equal(w.reviewMarker, undefined);
   assert.equal(w.historyMarker, undefined);
+});
+test("BankNav phone card selection fills known rules and keeps unknown cycles manual", async (t) => {
+  const { w, d, setCards } = await browser(t);
+  assert.equal(PHONE_CARDS.length, 69);
+  assert.equal(
+    new Set(PHONE_CARDS.map((card) => card.id)).size,
+    PHONE_CARDS.length,
+  );
+  assert(
+    !PHONE_CARDS.some((card) =>
+      ["kiteSim", "Roamless", "Eskimo", "Firsty", "esimfan"].includes(
+        card.name,
+      ),
+    ),
+  );
+  w.openModal();
+  const select = d.getElementById("simBrand");
+  const choose = (id) => {
+    select.value = id;
+    select.dispatchEvent(new w.Event("change", { bubbles: true }));
+  };
+  choose("英国:giffgaff");
+  assert.equal(d.getElementById("simName").value, "giffgaff");
+  assert.equal(d.getElementById("simCycle").value, "180");
+  assert.equal(d.getElementById("simCycleUnit").value, "day");
+  assert.match(d.getElementById("simRemark").value, /余额变动/);
+  assert.equal(
+    d.getElementById("simExpire").value,
+    addCalendarCycle(todayString(), 180, "day"),
+  );
+  choose("新西兰:One NZ");
+  assert.equal(d.getElementById("simCycle").value, "1");
+  assert.equal(
+    d.getElementById("simExpire").value,
+    addCalendarCycle(todayString(), 4, "year"),
+  );
+  choose("英国:CMLink UK");
+  assert.equal(d.getElementById("simCycle").value, "");
+  assert.equal(d.getElementById("simExpire").value, "");
+  assert.match(d.getElementById("simBrandHint").textContent, /手动填写/);
+  choose("爱沙尼亚:eSIM Plus");
+  assert.equal(d.getElementById("simCycle").required, false);
+  assert(d.getElementById("simCycleGroup").classList.contains("hidden"));
+  setCards([
+    {
+      ...sample,
+      id: "free",
+      name: "eSIM Plus",
+      brandId: "爱沙尼亚:eSIM Plus",
+      noRenewal: true,
+      cycle: null,
+      expireDate: null,
+    },
+  ]);
+  assert.match(d.querySelector("#esim-container").textContent, /无需保号/);
+  assert.equal(d.querySelector('[data-action="renew"]'), null);
 });
 test("statistics use full data through filters and reset to zero after last deletion", async (t) => {
   const { d, setCards, w } = await browser(t);

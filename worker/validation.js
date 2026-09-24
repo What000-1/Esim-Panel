@@ -78,26 +78,33 @@ export function validateCard(value, { legacy = false } = {}) {
   const card = object(value);
   const id = validId(card.id);
   const name = text(card.name, "名称", 100);
+  const brandId = text(card.brandId, "电话卡品牌", 100, true);
   const number = text(card.number, "号码", 50, true);
   const remark = text(card.remark, "备注", 500, true);
-  const expireDate = validDate(card.expireDate);
+  if (card.noRenewal !== undefined && typeof card.noRenewal !== "boolean")
+    throw new HttpError(400, "无需保号标记必须为布尔值");
+  const noRenewal = card.noRenewal ?? false;
+  const expireDate = noRenewal ? null : validDate(card.expireDate);
   const startDate =
     card.startDate == null || (legacy && !card.startDate)
       ? null
       : validDate(card.startDate);
-  const cycle =
-    legacy && typeof card.cycle === "string" && /^\d+$/.test(card.cycle)
+  const cycle = noRenewal
+    ? null
+    : legacy && typeof card.cycle === "string" && /^\d+$/.test(card.cycle)
       ? Number(card.cycle)
       : card.cycle;
   const cycleUnit = card.cycleUnit ?? "day";
-  if (!Number.isInteger(cycle) || cycle < 1 || cycle > 36500)
+  if (!noRenewal && (!Number.isInteger(cycle) || cycle < 1 || cycle > 36500))
     throw new HttpError(400, "周期必须为 1–36500 的整数");
   if (!["day", "month", "quarter", "year"].includes(cycleUnit))
     throw new HttpError(400, "周期单位无效");
-  try {
-    addCalendarCycle(startDate || expireDate, cycle, cycleUnit);
-  } catch (e) {
-    throw new HttpError(400, e.message);
+  if (!noRenewal) {
+    try {
+      addCalendarCycle(startDate || expireDate, cycle, cycleUnit);
+    } catch (e) {
+      throw new HttpError(400, e.message);
+    }
   }
   const reminderDays = card.reminderDays ?? 15;
   if (
@@ -131,6 +138,8 @@ export function validateCard(value, { legacy = false } = {}) {
   return {
     id,
     name,
+    brandId,
+    noRenewal,
     number,
     remark,
     startDate,
@@ -138,7 +147,7 @@ export function validateCard(value, { legacy = false } = {}) {
     cycle,
     cycleUnit,
     reminderDays,
-    autoRenew: card.autoRenew ?? false,
+    autoRenew: noRenewal ? false : (card.autoRenew ?? false),
     createdAt,
     renewalHistory: renewalHistory.map((record, index) => {
       try {

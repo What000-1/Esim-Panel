@@ -1,4 +1,4 @@
-// BankNav 海外电话卡「全部」三页（2026-09-24）；不含其「平台卡」分类及实体 eSIM 写卡工具。
+// BankNav「海外电话卡」完整地区栏目（2026-09-25）；不含其「平台卡」分类及实体 eSIM 写卡工具。
 // cycle 只在来源明确给出间隔时设置；未给出间隔的卡片留给用户填写。
 const PAGES = [
   "https://www.banknav.com/post/favorites/%E5%85%A8%E9%83%A8esim/",
@@ -17,6 +17,12 @@ function card(region, name, rule, cycle, unit, page, extra = {}) {
     sourceUrl: PAGES[page],
     ...extra,
   };
+}
+
+function siteCard(region, name, rule, cycle, unit, siteId) {
+  return card(region, name, rule, cycle, unit, 0, {
+    sourceUrl: `https://www.banknav.com/sites/${siteId}.html`,
+  });
 }
 
 export const PHONE_CARDS = [
@@ -385,4 +391,189 @@ export const PHONE_CARDS = [
     2,
   ),
   card("意大利", "CoopVoce", "每年充值 €5 保号。", 1, "year", 2),
+
+  // 按地区栏目补齐的条目。
+  siteCard("英国", "Three", "每 180 天充值任意金额保号。", 180, "day", 13141),
+  siteCard(
+    "英国",
+    "Vodafone",
+    "BankNav 标注 10 GBP 月租；请按实际账单日续费。",
+    1,
+    "month",
+    14074,
+  ),
+  siteCard(
+    "英国",
+    "Asda Mobile",
+    "每 180 天消费一次（发短信或通话），或充值一次。",
+    180,
+    "day",
+    14268,
+  ),
+  siteCard("德国", "O2", "每 180 天充值一次，最低 €0.01。", 180, "day", 13231),
+  siteCard(
+    "荷兰",
+    "Simyo",
+    "每 180 天发一条短信保号，BankNav 标价 €0.50；余额可支付多次保号费用。",
+    180,
+    "day",
+    5445,
+  ),
+  siteCard(
+    "奥地利",
+    "Yesss",
+    "每半年充值 €5，合计每年约 €10。",
+    6,
+    "month",
+    13572,
+  ),
+  siteCard(
+    "瑞士",
+    "Swisscom",
+    "每年发一条短信保号，BankNav 标价 0.4 CHF。",
+    1,
+    "year",
+    3452,
+  ),
+  siteCard(
+    "越南",
+    "VNSKY",
+    "每 30 天内发一条短信保号，BankNav 标价 500 VND/条。",
+    30,
+    "day",
+    13682,
+  ),
+  siteCard("香港", "CLS 香港电讯", "每年支付 6 HKD 保号。", 1, "year", 13338),
+  siteCard(
+    "日本",
+    "Cuniq",
+    "月租 550 JPY；请按实际账单日续费。",
+    1,
+    "month",
+    14503,
+  ),
+  siteCard(
+    "波兰",
+    "Play",
+    "BankNav 提到 30 PLN 套餐，但明确标注保号期限未知；请自行核对。",
+    null,
+    null,
+    14697,
+  ),
+  siteCard("捷克", "kaktus", "每年充值 50 CZK 保号。", 1, "year", 14555),
+  siteCard(
+    "奥地利",
+    "Lidl eSIM",
+    "每 12 个月充值一次，最低 €5。",
+    12,
+    "month",
+    14473,
+  ),
+  siteCard(
+    "冰岛",
+    "Nova",
+    "每 6 个月充值一次；BankNav 标注 App 最低充值 1000 ISK。",
+    6,
+    "month",
+    10428,
+  ),
+  siteCard(
+    "马耳他",
+    "Melita",
+    "每 365 天使余额发生一次变动。",
+    365,
+    "day",
+    13279,
+  ),
+  siteCard("意大利", "Spusu", "每年充值 €5 保号。", 1, "year", 13137),
+  siteCard(
+    "加拿大",
+    "Fizz",
+    "BankNav 未列出固定保号操作或期限；请按实际套餐核对。",
+    null,
+    null,
+    12111,
+  ),
+  siteCard(
+    "塞尔维亚",
+    "Yettel",
+    "BankNav 写作“11月充值一次”，最低 300 RSD；表述有歧义，请核对周期后手动填写。",
+    null,
+    null,
+    13285,
+  ),
+  siteCard(
+    "马其顿",
+    "Telekom",
+    "不同充值金额增加不同有效期；BankNav 未给出统一周期，请手动填写。",
+    null,
+    null,
+    13340,
+  ),
+  siteCard(
+    "哈萨克斯坦",
+    "Tele2",
+    "BankNav 标注每月保号费用约 0.015 CNY；请按实际账单日核对。",
+    1,
+    "month",
+    2446,
+  ),
+  siteCard(
+    "捷克",
+    "O2",
+    "充值至少 300 CZK 一次，可延长有效期 1 年。",
+    1,
+    "year",
+    13342,
+  ),
+  siteCard(
+    "乌拉圭",
+    "Antel",
+    "BankNav 未给出保号操作或期限；请自行核对。",
+    null,
+    null,
+    13491,
+  ),
+  siteCard(
+    "巴林",
+    "STC",
+    "充值超过 30 BHD 可延长 100 天；BankNav 另提到每年保留使用记录。",
+    100,
+    "day",
+    13577,
+  ),
+  siteCard(
+    "萨摩亚",
+    "Digicell",
+    "BankNav 未给出保号操作或期限；请自行核对。",
+    null,
+    null,
+    13575,
+  ),
+  siteCard(
+    "巴西",
+    "Vivo",
+    "每 30–90 天保持一次消费动作，如发短信或充值；请按所购方案手动设置周期。",
+    null,
+    null,
+    13583,
+  ),
+  siteCard(
+    "波黑",
+    "Novotel",
+    "充值 1–1.99 KM 延长 3 天，2–2.99 KM 延长 8 天，3–4.99 KM 延长 15 天，5–9.99 KM 延长 30 天，10–19.99 KM 延长 90 天，20–50 KM 延长 120 天；请按充值金额手动设置周期。",
+    null,
+    null,
+    13586,
+  ),
+  siteCard(
+    "斯洛文尼亚",
+    "Telekom",
+    "每 270 天内至少充值一次。",
+    270,
+    "day",
+    13660,
+  ),
+  siteCard("斯里兰卡", "Dialog", "每年充值 1000 LKR 保号。", 1, "year", 13665),
+  siteCard("西班牙", "Llamaya", "每 105 天充值 €5 保号。", 105, "day", 13972),
 ];

@@ -96,16 +96,58 @@ test("stored HTML remains text in cards and renewal dialogs; IDs use delegated e
 });
 test("BankNav phone card selection fills known rules and keeps unknown cycles manual", async (t) => {
   const { w, d, setCards } = await browser(t);
-  assert.equal(PHONE_CARDS.length, 69);
+  assert.equal(PHONE_CARDS.length, 98);
   assert.equal(
     new Set(PHONE_CARDS.map((card) => card.id)).size,
     PHONE_CARDS.length,
   );
+  for (const id of [
+    "英国:Three",
+    "英国:Vodafone",
+    "英国:Asda Mobile",
+    "德国:O2",
+    "荷兰:Simyo",
+    "奥地利:Yesss",
+    "瑞士:Swisscom",
+    "越南:VNSKY",
+    "香港:CLS 香港电讯",
+    "日本:Cuniq",
+    "波兰:Play",
+    "捷克:kaktus",
+    "奥地利:Lidl eSIM",
+    "冰岛:Nova",
+    "马耳他:Melita",
+    "意大利:Spusu",
+    "加拿大:Fizz",
+    "塞尔维亚:Yettel",
+    "马其顿:Telekom",
+    "哈萨克斯坦:Tele2",
+    "捷克:O2",
+    "乌拉圭:Antel",
+    "巴林:STC",
+    "萨摩亚:Digicell",
+    "巴西:Vivo",
+    "波黑:Novotel",
+    "斯洛文尼亚:Telekom",
+    "斯里兰卡:Dialog",
+    "西班牙:Llamaya",
+  ]) {
+    assert(
+      PHONE_CARDS.some((card) => card.id === id),
+      `${id} missing`,
+    );
+  }
   assert(
     !PHONE_CARDS.some((card) =>
-      ["kiteSim", "Roamless", "Eskimo", "Firsty", "esimfan"].includes(
-        card.name,
-      ),
+      [
+        "CodSIM",
+        "Red BulI",
+        "kiteSim",
+        "Roamless",
+        "Eskimo",
+        "Firsty",
+        "esimfan",
+      ].includes(card.name),
     ),
   );
   w.openModal();
@@ -123,6 +165,13 @@ test("BankNav phone card selection fills known rules and keeps unknown cycles ma
     d.getElementById("simExpire").value,
     addCalendarCycle(todayString(), 180, "day"),
   );
+  choose("荷兰:Simyo");
+  assert.equal(d.getElementById("simCycle").value, "180");
+  assert.match(d.getElementById("simRemark").value, /发一条短信/);
+  assert.equal(
+    d.getElementById("simBrandSource").href,
+    "https://www.banknav.com/sites/5445.html",
+  );
   choose("新西兰:One NZ");
   assert.equal(d.getElementById("simCycle").value, "1");
   assert.equal(
@@ -133,6 +182,9 @@ test("BankNav phone card selection fills known rules and keeps unknown cycles ma
   assert.equal(d.getElementById("simCycle").value, "");
   assert.equal(d.getElementById("simExpire").value, "");
   assert.match(d.getElementById("simBrandHint").textContent, /手动填写/);
+  choose("巴西:Vivo");
+  assert.equal(d.getElementById("simCycle").value, "");
+  assert.match(d.getElementById("simRemark").value, /30–90 天/);
   choose("爱沙尼亚:eSIM Plus");
   assert.equal(d.getElementById("simCycle").required, false);
   assert(d.getElementById("simCycleGroup").classList.contains("hidden"));

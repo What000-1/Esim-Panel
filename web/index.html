@@ -442,6 +442,19 @@
         <form id="addForm" onsubmit="submitForm(event)">
           <div class="mb-4">
             <label
+              for="simBrandSearch"
+              class="block text-gray-700 text-sm font-bold mb-2"
+              >搜索电话卡品牌</label
+            >
+            <input
+              type="search"
+              id="simBrandSearch"
+              autocomplete="off"
+              placeholder="输入品牌或地区，例如 Simyo、荷兰"
+              aria-controls="simBrand"
+              class="w-full px-4 py-2 rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white/80 mb-3"
+            />
+            <label
               for="simBrand"
               class="block text-gray-700 text-sm font-bold mb-2"
               >海外电话卡 (选填)</label
@@ -453,6 +466,11 @@
             >
               <option value="">自定义 / 未列出</option>
             </select>
+            <p
+              class="text-xs text-gray-500 mt-1"
+              id="simBrandSearchStatus"
+              role="status"
+            ></p>
             <p class="text-xs text-gray-500 mt-1" id="simBrandHint">
               选择后填入名称、保号周期和规则；可自行调整。
             </p>

@@ -896,6 +896,8 @@ function updatePhoneCardHint() {
 
 function applyPhoneCardPreset() {
   const preset = selectedPhoneCard();
+  document.getElementById("simBrandSearch").value = "";
+  populatePhoneCards();
   const name = document.getElementById("simName");
   const previous = PHONE_CARDS.find(
     (card) => card.id === name.dataset.presetBrand,
@@ -913,10 +915,29 @@ function applyPhoneCardPreset() {
   if (preset.cycle) autoCalcExpireDate();
 }
 
-function populatePhoneCards() {
+function normalizePhoneCardSearch(value) {
+  return value
+    .normalize("NFKC")
+    .toLocaleLowerCase()
+    .replace(/[\s\p{P}\p{S}]+/gu, "");
+}
+
+function populatePhoneCards(query = "") {
   const select = document.getElementById("simBrand");
+  const selectedId = select.value;
+  const search = normalizePhoneCardSearch(query);
+  const matches = PHONE_CARDS.filter((card) =>
+    normalizePhoneCardSearch(card.region + card.name).includes(search),
+  );
+  const visibleCards = PHONE_CARDS.filter(
+    (card) => matches.includes(card) || card.id === selectedId,
+  );
+  const custom = document.createElement("option");
+  custom.value = "";
+  custom.textContent = "自定义 / 未列出";
+  select.replaceChildren(custom);
   const groups = new Map();
-  for (const card of PHONE_CARDS) {
+  for (const card of visibleCards) {
     let group = groups.get(card.region);
     if (!group) {
       group = document.createElement("optgroup");
@@ -930,6 +951,13 @@ function populatePhoneCards() {
     option.dataset.noRenewal = String(!!card.noRenewal);
     group.append(option);
   }
+  select.value = selectedId;
+  const status = document.getElementById("simBrandSearchStatus");
+  status.textContent = search
+    ? matches.length
+      ? `找到 ${matches.length} 个品牌${selectedId && !matches.some((card) => card.id === selectedId) ? "；当前已选品牌仍保留" : ""}`
+      : "没有匹配的品牌；可选择“自定义 / 未列出”"
+    : "";
 }
 
 function getTodayStr() {
@@ -941,6 +969,8 @@ function openModal() {
   document.getElementById("modalTitle").innerHTML =
     '<i class="fa-solid fa-file-circle-plus text-blue-600"></i> 新增 eSIM';
   document.getElementById("addForm").reset();
+  document.getElementById("simBrandSearch").value = "";
+  populatePhoneCards();
   document.getElementById("simName").dataset.presetBrand = "";
   updatePhoneCardHint();
   document.getElementById("simStartDate").value = getTodayStr();
@@ -961,6 +991,8 @@ function openEditModal(id) {
   document.getElementById("modalTitle").innerHTML =
     '<i class="fa-solid fa-pen-to-square text-green-600"></i> 编辑 eSIM';
 
+  document.getElementById("simBrandSearch").value = "";
+  populatePhoneCards();
   document.getElementById("simName").value = sim.name || "";
   document.getElementById("simBrand").value = sim.brandId || "";
   document.getElementById("simName").dataset.presetBrand = sim.brandId || "";
@@ -1247,6 +1279,17 @@ async function retryNotifications() {
   }
 }
 populatePhoneCards();
+document.getElementById("simBrandSearch").addEventListener("input", (event) => {
+  populatePhoneCards(event.target.value);
+});
+document
+  .getElementById("simBrandSearch")
+  .addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      document.getElementById("simBrand").focus();
+    }
+  });
 document
   .getElementById("simBrand")
   .addEventListener("change", applyPhoneCardPreset);

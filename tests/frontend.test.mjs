@@ -152,10 +152,35 @@ test("BankNav phone card selection fills known rules and keeps unknown cycles ma
   );
   w.openModal();
   const select = d.getElementById("simBrand");
+  const search = d.getElementById("simBrandSearch");
+  const filter = (query) => {
+    search.value = query;
+    search.dispatchEvent(new w.Event("input", { bubbles: true }));
+  };
   const choose = (id) => {
     select.value = id;
     select.dispatchEvent(new w.Event("change", { bubbles: true }));
   };
+  filter("荷兰 simyo");
+  assert.deepEqual(
+    [...select.options].map((option) => option.value),
+    ["", "荷兰:Simyo"],
+  );
+  assert.match(
+    d.getElementById("simBrandSearchStatus").textContent,
+    /1 个品牌/,
+  );
+  choose("荷兰:Simyo");
+  assert.equal(search.value, "");
+  assert.equal(select.options.length, PHONE_CARDS.length + 1);
+  filter("不存在的品牌");
+  assert.equal(select.value, "荷兰:Simyo");
+  assert.equal(select.options.length, 2);
+  assert.match(
+    d.getElementById("simBrandSearchStatus").textContent,
+    /没有匹配/,
+  );
+  filter("");
   choose("英国:giffgaff");
   assert.equal(d.getElementById("simName").value, "giffgaff");
   assert.equal(d.getElementById("simCycle").value, "180");
@@ -201,6 +226,9 @@ test("BankNav phone card selection fills known rules and keeps unknown cycles ma
   ]);
   assert.match(d.querySelector("#esim-container").textContent, /无需保号/);
   assert.equal(d.querySelector('[data-action="renew"]'), null);
+  w.openEditModal("free");
+  assert.equal(select.value, "爱沙尼亚:eSIM Plus");
+  assert.equal(search.value, "");
 });
 test("statistics use full data through filters and reset to zero after last deletion", async (t) => {
   const { d, setCards, w } = await browser(t);

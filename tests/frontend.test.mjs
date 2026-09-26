@@ -197,6 +197,24 @@ test("BankNav phone card selection fills known rules and keeps unknown cycles ma
     d.getElementById("simBrandSource").href,
     "https://www.banknav.com/sites/5445.html",
   );
+  filter("波兰 play");
+  assert.deepEqual(
+    [...select.options].map((option) => option.value),
+    ["", "荷兰:Simyo", "波兰:Play"],
+  );
+  choose("波兰:Play");
+  assert.equal(d.getElementById("simName").value, "Play");
+  assert.equal(d.getElementById("simCycle").value, "365");
+  assert.equal(d.getElementById("simCycleUnit").value, "day");
+  assert.match(d.getElementById("simRemark").value, /充值 5 PLN 保号 365 天/);
+  assert.equal(
+    d.getElementById("simExpire").value,
+    addCalendarCycle(todayString(), 365, "day"),
+  );
+  assert.equal(
+    d.getElementById("simBrandSource").href,
+    "https://www.banknav.com/sites/14697.html",
+  );
   choose("新西兰:One NZ");
   assert.equal(d.getElementById("simCycle").value, "1");
   assert.equal(

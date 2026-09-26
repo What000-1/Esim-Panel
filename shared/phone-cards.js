@@ -1,4 +1,4 @@
-// BankNav「海外电话卡」完整地区栏目（2026-09-25）；不含其「平台卡」分类及实体 eSIM 写卡工具。
+// BankNav「海外电话卡」完整地区栏目（2026-09-26）；不含其「平台卡」分类及实体 eSIM 写卡工具。
 // cycle 只在来源明确给出间隔时设置；未给出间隔的卡片留给用户填写。
 const PAGES = [
   "https://www.banknav.com/post/favorites/%E5%85%A8%E9%83%A8esim/",
@@ -455,9 +455,9 @@ export const PHONE_CARDS = [
   siteCard(
     "波兰",
     "Play",
-    "BankNav 提到 30 PLN 套餐，但明确标注保号期限未知；请自行核对。",
-    null,
-    null,
+    "开卡选择 eSIM 和 30 PLN 套餐，使用中国护照 KYC；充值 5 PLN 保号 365 天。",
+    365,
+    "day",
     14697,
   ),
   siteCard("捷克", "kaktus", "每年充值 50 CZK 保号。", 1, "year", 14555),

@@ -6,3 +6,12 @@
 !.env.example
 node_modules/
 worker/generated-ui.js
+
+# Local review artifacts
+/work/review-*/
+/20??-??-??_code-review-*-report.md
+/20??-??-??_fix-*-report.md
+
+# Local OS metadata
+.DS_Store
+Thumbs.db

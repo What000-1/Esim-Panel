@@ -14,7 +14,8 @@ export function object(value) {
   return value;
 }
 function text(value, key, max, optional = false) {
-  if (value === undefined && optional) return "";
+  // Older records may store an empty optional field as null.
+  if ((value === undefined || value === null) && optional) return "";
   if (
     typeof value !== "string" ||
     value.length > max ||

@@ -529,3 +529,66 @@ test("failed notification retry is authenticated and restores persistent pending
   assert.equal(f.store.get("notice:failed").attempts, 0);
   assert(f.state.alarmAt);
 });
+
+test("legacy records with null optional text fields import as empty text", () => {
+  const card = validateCard(
+    { ...sample, number: null, remark: null, brandId: null },
+    { legacy: true },
+  );
+  assert.equal(card.number, "");
+  assert.equal(card.remark, "");
+  assert.equal(card.brandId, "");
+});
+
+test("failed auto renewal keeps the card out of quarantine and still notifies", async (t) => {
+  const f = await fixture([
+    {
+      ...sample,
+      startDate: "1900-01-01",
+      expireDate: todayString(),
+      cycle: 8000,
+      cycleUnit: "year",
+      autoRenew: true,
+    },
+  ]);
+  t.after(f.close);
+  assert.equal((await f.request("/internal/scheduled", "POST")).status, 200);
+  assert.equal(f.store.list("quarantine:").length, 0);
+  assert.equal(f.store.cards().length, 1);
+  assert.equal(f.store.cards()[0].expireDate, todayString());
+  const [notice] = f.store.list("notice:");
+  assert.match(notice.value.text, /自动延期失败/);
+});
+
+test("reminders for deleted cards are dropped and old failed notices are cleaned", async (t) => {
+  const f = await fixture([sample]);
+  t.after(f.close);
+  const originalFetch = globalThis.fetch;
+  t.after(() => {
+    globalThis.fetch = originalFetch;
+  });
+  let sent = 0;
+  globalThis.fetch = async () => {
+    sent++;
+    return Response.json({ ok: true });
+  };
+  const notice = {
+    text: "message",
+    part: 0,
+    status: "pending",
+    attempts: 0,
+    nextAt: 0,
+    createdAt: Date.now(),
+  };
+  f.store.put("notice:2026-01-01:gone", notice);
+  await f.store.alarm();
+  assert.equal(sent, 0);
+  assert.equal(f.store.get("notice:2026-01-01:gone"), null);
+  f.store.put("notice:2026-01-01:one", {
+    ...notice,
+    status: "failed",
+    createdAt: Date.now() - 40 * 86400000,
+  });
+  await f.request("/internal/scheduled", "POST");
+  assert.equal(f.store.get("notice:2026-01-01:one"), null);
+});

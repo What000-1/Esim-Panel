@@ -523,3 +523,59 @@ test("500-card filtering reuses DOM, preserves selection and releases deleted ca
   await w.logout(false);
   assert.equal(w.eval("cardRenderCache.size"), 0);
 });
+
+test("editing a stored no-renewal card with a custom brand keeps it no-renewal", async (t) => {
+  const { w, d, setCards } = await browser(t);
+  const requests = [];
+  const originalFetch = w.fetch;
+  w.fetch = async (url, options = {}) => {
+    if (options.body) requests.push(JSON.parse(options.body));
+    return originalFetch(url, options);
+  };
+  w.eval('dataRevision = "1"');
+  setCards([
+    { ...sample, brandId: "", noRenewal: true, cycle: null, expireDate: null },
+  ]);
+  w.openEditModal("one");
+  assert.equal(
+    d.getElementById("simCycleGroup").classList.contains("hidden"),
+    true,
+  );
+  d.getElementById("addForm").requestSubmit();
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.equal(requests.at(-1).noRenewal, true);
+  assert.equal(requests.at(-1).cycle, null);
+});
+
+test("batch actions and select-all only affect cards visible in the search", async (t) => {
+  const { w, d, setCards } = await browser(t);
+  const requests = [];
+  const originalFetch = w.fetch;
+  w.fetch = async (url, options = {}) => {
+    if (options.body) requests.push(JSON.parse(options.body));
+    return originalFetch(url, options);
+  };
+  w.eval('dataRevision = "1"');
+  setCards([
+    { ...sample, id: "a", name: "Alpha" },
+    { ...sample, id: "b", name: "Beta" },
+  ]);
+  w.toggleBatchMode();
+  d.querySelector('[data-select-id="a"]').click();
+  d.getElementById("searchInput").value = "beta";
+  w.filterAndRender();
+  assert.equal(d.getElementById("selectedCount").textContent, "0");
+  w.toggleSelectAll(true);
+  assert.equal(d.getElementById("selectedCount").textContent, "1");
+  await w.batchDelete();
+  assert.deepEqual(requests.at(-1).ids, ["b"]);
+  assert.equal(w.eval('selectedIds.has("a")'), true);
+  w.toggleSelectAll(false);
+  assert.equal(w.eval('selectedIds.has("a")'), true);
+});
+
+test("logout restores the Telegram icon on the send-code button", async (t) => {
+  const { w, d } = await browser(t);
+  await w.logout(false);
+  assert(d.querySelector("#sendCodeBtn .fa-telegram"));
+});

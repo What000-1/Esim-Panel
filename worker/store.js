@@ -177,16 +177,18 @@ export class EsimStore {
     }
     if (path === "/api/esims/quarantine" && request.method === "GET")
       return json(this.list("quarantine:").map((row) => row.value));
-    if (path === "/api/esims/status" && request.method === "GET")
+    if (path === "/api/esims/status" && request.method === "GET") {
+      const notices = this.list("notice:");
       return json({
         quarantineCount: this.list("quarantine:").length,
-        pendingNotifications: this.list("notice:").filter(
+        pendingNotifications: notices.filter(
           (row) => row.value.status === "pending",
         ).length,
-        failedNotifications: this.list("notice:").filter(
+        failedNotifications: notices.filter(
           (row) => row.value.status === "failed",
         ).length,
       });
+    }
     if (path === "/api/esims" && request.method === "GET")
       return json(this.cards(), 200, revisionHeaders(this.revision()));
     if (!["/api/esims", "/api/esims/import", "/api/esims/batch"].includes(path))
@@ -319,10 +321,9 @@ export class EsimStore {
       const rateKey = "auth:send:" + ip;
       if (this.get(rateKey))
         throw new HttpError(429, "请等待 60 秒后再获取验证码");
-      const global = this.get("auth:send-global") || {
-        count: 0,
-        expires: now() + 3600000,
-      };
+      let global = this.get("auth:send-global");
+      if (!global || global.expires <= now())
+        global = { count: 0, expires: now() + 3600000 };
       if (global.count >= 60)
         throw new HttpError(429, "本小时验证码发送次数已达上限");
       await telegramConfig(this.env);
@@ -406,12 +407,22 @@ export class EsimStore {
         let message;
         const noticeKey = `notice:${today}:${card.id}`;
         if (this.get(noticeKey)) continue;
+        let renewed = null;
         if (days <= 0 && card.autoRenew) {
-          const renewed = this.renew(card, "fromToday", "auto");
+          // A failed renewal must not quarantine a card that is already kept.
+          try {
+            renewed = this.renew(card, "fromToday", "auto");
+          } catch (e) {
+            console.error("Auto renewal failed", index, e.message);
+          }
+        }
+        if (renewed) {
           validCards[validCards.length - 1] = renewed;
           changed = true;
           message = `🔄 看板自动延期\n${detail}新到期日：${renewed.expireDate}\n请确认已完成实际保号操作（短信、充值等）。`;
-        } else if (days === 0)
+        } else if (days <= 0 && card.autoRenew)
+          message = `⚠️ 自动延期失败\n${detail}到期：${card.expireDate}\n请手动检查周期设置并完成保号操作。`;
+        else if (days === 0)
           message = `🚨 今天到期\n${detail}请立即处理保号操作。`;
         else if (days > 0 && days <= card.reminderDays)
           message = `⚠️ 保号提醒\n${detail}到期：${card.expireDate}\n剩余 ${days} 天。`;
@@ -440,9 +451,10 @@ export class EsimStore {
       if (changed) this.saveCards(validCards);
       bad.forEach((row) => this.put("quarantine:" + crypto.randomUUID(), row));
       notices.forEach((row) => this.put(row.key, row.value));
+      // Failed notices are kept for retry, but not forever.
       for (const row of this.list("notice:"))
         if (
-          row.value.status === "sent" &&
+          row.value.status !== "pending" &&
           row.value.createdAt < now() - 35 * 86400000
         )
           this.delete(row.key);
@@ -468,6 +480,13 @@ export class EsimStore {
         (row) => row.value.status === "pending" && row.value.nextAt <= now(),
       );
       if (!item) {
+        await this.arm();
+        return;
+      }
+      // Scheduled keys are notice:<date>:<cardId>; drop reminders for deleted cards.
+      const cardId = /^notice:\d{4}-\d{2}-\d{2}:(.+)$/.exec(item.key)?.[1];
+      if (cardId && !this.get("card:" + cardId)) {
+        this.delete(item.key);
         await this.arm();
         return;
       }

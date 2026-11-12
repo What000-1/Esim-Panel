@@ -15,6 +15,9 @@ let currentSort = { key: "remainDays", asc: true };
 let searchTimer = null;
 const cardRenderCache = new Map();
 let renewTarget = null; // { id, cycle, cycleUnit, expireDate, name } - 当前续期目标
+const SEND_CODE_LABEL =
+  '<i class="fa-brands fa-telegram text-xl mr-2"></i> 向 TG 机器人获取验证码';
+let formNoRenewal = false; // 表单当前是否按“无需保号”处理（与界面显示保持一致）
 
 // ================= XSS 防护 =================
 function escapeHTML(str) {
@@ -109,8 +112,7 @@ async function sendAuthCode() {
         if (timeLeft <= 0) {
           clearInterval(countdownInterval);
           btn.disabled = false;
-          btn.innerHTML =
-            '<i class="fa-brands fa-telegram text-xl mr-2"></i> 向 TG 机器人获取验证码';
+          btn.innerHTML = SEND_CODE_LABEL;
         } else {
           btn.innerHTML = `<i class="fa-solid fa-clock mr-2"></i> ${timeLeft} 秒后可重发`;
         }
@@ -118,15 +120,13 @@ async function sendAuthCode() {
     } else {
       alert("发送失败: " + (data.message || "后端未配置机器人信息"));
       btn.disabled = false;
-      btn.innerHTML =
-        '<i class="fa-brands fa-telegram text-xl mr-2"></i> 向 TG 机器人获取验证码';
+      btn.innerHTML = SEND_CODE_LABEL;
     }
   } catch (e) {
     if (generation !== sessionGeneration) return;
     alert("网络错误，发送失败");
     btn.disabled = false;
-    btn.innerHTML =
-      '<i class="fa-brands fa-telegram text-xl mr-2"></i> 向 TG 机器人获取验证码';
+    btn.innerHTML = SEND_CODE_LABEL;
   }
 }
 
@@ -209,7 +209,7 @@ async function logout(revoke = true) {
   document.getElementById("loginBtn").disabled = false;
   document.getElementById("loginBtn").textContent = "登录面板";
   document.getElementById("sendCodeBtn").disabled = false;
-  document.getElementById("sendCodeBtn").textContent = "向 TG 机器人获取验证码";
+  document.getElementById("sendCodeBtn").innerHTML = SEND_CODE_LABEL;
   updateSelectedCount();
   if (revoke && headers.Authorization !== "Bearer ") {
     try {
@@ -233,24 +233,31 @@ function debouncedFilter() {
   }, 150);
 }
 
-function filterAndRender() {
+// 当前搜索条件下可见的卡片；渲染、全选和批量操作共用同一结果
+function filteredEsims() {
   const query = (document.getElementById("searchInput").value || "")
     .trim()
     .toLowerCase();
-  let filtered = esimData;
-  if (query) {
-    filtered = esimData.filter((sim) => {
-      const name = (sim.name || "").toLowerCase();
-      const number = (sim.number || "").toLowerCase();
-      const brand = (
-        PHONE_CARDS.find((card) => card.id === sim.brandId)?.name || ""
-      ).toLowerCase();
-      return (
-        name.includes(query) || number.includes(query) || brand.includes(query)
-      );
-    });
-  }
-  renderCards(filtered);
+  if (!query) return esimData;
+  return esimData.filter((sim) => {
+    const name = (sim.name || "").toLowerCase();
+    const number = (sim.number || "").toLowerCase();
+    const brand = (
+      PHONE_CARDS.find((card) => card.id === sim.brandId)?.name || ""
+    ).toLowerCase();
+    return (
+      name.includes(query) || number.includes(query) || brand.includes(query)
+    );
+  });
+}
+
+// Selections survive filtering, but batch actions only touch what is shown.
+function visibleSelectedEsims() {
+  return filteredEsims().filter((sim) => selectedIds.has(sim.id));
+}
+
+function filterAndRender() {
+  renderCards(filteredEsims());
 }
 
 function setSort(key) {
@@ -331,22 +338,10 @@ function toggleCardSelection(id, checkbox) {
 }
 
 function toggleSelectAll(checked) {
-  // 获取当前显示的卡片
-  const query = (document.getElementById("searchInput").value || "")
-    .trim()
-    .toLowerCase();
-  let filtered = esimData;
-  if (query) {
-    filtered = esimData.filter((sim) => {
-      const name = (sim.name || "").toLowerCase();
-      const number = (sim.number || "").toLowerCase();
-      return name.includes(query) || number.includes(query);
-    });
-  }
-  if (checked) {
-    filtered.forEach((sim) => selectedIds.add(sim.id));
-  } else {
-    selectedIds.clear();
+  // 只增删当前显示的卡片，被搜索隐藏的选择保持不变
+  for (const sim of filteredEsims()) {
+    if (checked) selectedIds.add(sim.id);
+    else selectedIds.delete(sim.id);
   }
   // 更新所有复选框
   document.querySelectorAll(".card-select-input").forEach((cb) => {
@@ -358,19 +353,19 @@ function toggleSelectAll(checked) {
 }
 
 function updateSelectedCount() {
-  document.getElementById("selectedCount").textContent = selectedIds.size;
   const boxes = [...document.querySelectorAll(".card-select-input")];
   const selected = boxes.filter((cb) => cb.checked).length;
+  // 计数与批量操作范围一致：只统计当前可见的已选卡片
+  document.getElementById("selectedCount").textContent = selected;
   const all = document.getElementById("selectAllCheckbox");
   all.checked = boxes.length > 0 && selected === boxes.length;
   all.indeterminate = selected > 0 && selected < boxes.length;
 }
 
 async function batchRenew() {
-  if (selectedIds.size === 0) return alert("请先选择要续期的卡片");
-  const selected = esimData.filter(
-    (s) => selectedIds.has(s.id) && !s.noRenewal,
-  );
+  const visible = visibleSelectedEsims();
+  if (!visible.length) return alert("请先选择要续期的卡片");
+  const selected = visible.filter((s) => !s.noRenewal);
   if (!selected.length) return alert("选中的卡片均无需保号，无需续期");
   const mode = await showBatchRenewDialog(selected);
   if (!mode) return;
@@ -379,7 +374,7 @@ async function batchRenew() {
       ids: selected.map((s) => s.id),
       renewMode: mode,
     });
-    selectedIds.clear();
+    visible.forEach((s) => selectedIds.delete(s.id));
     await fetchEsimData();
   } catch (e) {
     alert(e.message);
@@ -397,16 +392,15 @@ function showBatchRenewDialog(selected) {
 }
 
 async function batchDelete() {
+  const ids = visibleSelectedEsims().map((s) => s.id);
   if (
-    !selectedIds.size ||
-    !confirm("确定删除选中的 " + selectedIds.size + " 张卡片？此操作不可撤销。")
+    !ids.length ||
+    !confirm("确定删除选中的 " + ids.length + " 张卡片？此操作不可撤销。")
   )
     return;
   try {
-    await mutate(WORKER_API_URL + "/batch", "DELETE", {
-      ids: [...selectedIds],
-    });
-    selectedIds.clear();
+    await mutate(WORKER_API_URL + "/batch", "DELETE", { ids });
+    ids.forEach((id) => selectedIds.delete(id));
     await fetchEsimData();
   } catch (e) {
     alert(e.message);
@@ -670,9 +664,8 @@ async function submitForm(e) {
   btn.textContent = "保存中...";
   const payload = {
     brandId: document.getElementById("simBrand").value,
-    noRenewal:
-      document.getElementById("simBrand").selectedOptions[0]?.dataset
-        .noRenewal === "true",
+    // Submit what the form shows: brand changes and the stored card both set it.
+    noRenewal: formNoRenewal,
     name: document.getElementById("simName").value,
     number: document.getElementById("simNumber").value,
     startDate: document.getElementById("simStartDate").value,
@@ -863,6 +856,7 @@ function selectedPhoneCard() {
 }
 
 function setNoRenewalFields(noRenewal) {
+  formNoRenewal = noRenewal;
   for (const id of [
     "simCycleGroup",
     "simExpireGroup",
@@ -1007,6 +1001,8 @@ function openEditModal(id) {
   document.getElementById("simAutoRenew").checked = !!sim.autoRenew;
   document.getElementById("simReminderDays").value = sim.reminderDays ?? "";
   document.getElementById("expireHint").innerHTML = "";
+  // The stored flag wins over the brand preset until the user picks a brand.
+  setNoRenewalFields(!!sim.noRenewal);
 
   showDialog("addModal");
 }
@@ -1141,7 +1137,7 @@ async function importData() {
       return;
 
     // 发送给后端
-    const response = await mutate(
+    await mutate(
       WORKER_API_URL + "/import",
       "POST",
       {
@@ -1151,18 +1147,9 @@ async function importData() {
       importRevision,
     );
 
-    if (response.status === 401) {
-      logout();
-      return;
-    }
-    if (response.ok) {
-      alert("导入成功！");
-      closeImportModal();
-      await fetchEsimData();
-    } else {
-      const err = await response.json();
-      throw new Error(err.message || "导入失败");
-    }
+    alert("导入成功！");
+    closeImportModal();
+    await fetchEsimData();
   } catch (e) {
     console.error(e);
     alert("错误: " + e.message);

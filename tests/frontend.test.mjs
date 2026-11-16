@@ -579,3 +579,315 @@ test("logout restores the Telegram icon on the send-code button", async (t) => {
   await w.logout(false);
   assert(d.querySelector("#sendCodeBtn .fa-telegram"));
 });
+
+test("panel toggles Telegram renew buttons and labels Telegram renewals", async (t) => {
+  const { w, d, setCards } = await browser(t);
+  const requests = [];
+  const originalFetch = w.fetch;
+  w.fetch = async (url, options = {}) => {
+    if (options.body) requests.push({ url, body: JSON.parse(options.body) });
+    return originalFetch(url, options);
+  };
+  w.sessionStorage.setItem("esim_challenge_id", "challenge");
+  d.getElementById("authCode").value = "123456";
+  await w.verifyCode();
+  const button = d.getElementById("telegramButtonsBtn");
+  assert.equal(button.classList.contains("hidden"), false);
+  assert.equal(
+    d.getElementById("telegramButtonsLabel").textContent,
+    "启用 TG 按钮续期",
+  );
+  await w.toggleTelegramButtons();
+  assert.deepEqual(requests.at(-1), {
+    url: "/api/telegram/buttons",
+    body: { enabled: true },
+  });
+  assert.equal(
+    d.getElementById("telegramButtonsLabel").textContent,
+    "关闭 TG 按钮续期",
+  );
+  setCards([
+    {
+      ...sample,
+      renewalHistory: [
+        {
+          renewedAt: "2026-09-21T08:00:00.000Z",
+          source: "telegram",
+          mode: "fromToday",
+          previousExpireDate: "2026-02-01",
+          newExpireDate: "2026-03-01",
+          cycle: 1,
+          cycleUnit: "month",
+        },
+      ],
+    },
+  ]);
+  w.openRenewalHistory("one");
+  assert.match(
+    d.getElementById("renewalHistoryList").textContent,
+    /TG 按钮续期/,
+  );
+  await w.logout(false);
+  assert.equal(button.classList.contains("hidden"), true);
+});
+
+test("renew modal handles overflow dates, edit preserves unknown brands and One NZ uses 1-year cycle after renewal", async (t) => {
+  const { w, d, setCards } = await browser(t);
+  setCards([
+    {
+      ...sample,
+      id: "overflow",
+      name: "Far Future",
+      startDate: "9500-01-01",
+      expireDate: "9999-01-01",
+      cycle: 10,
+      cycleUnit: "year",
+    },
+    {
+      ...sample,
+      id: "unknown-brand",
+      brandId: "旧地区:已下线品牌",
+    },
+    {
+      ...sample,
+      id: "one-nz-renewed",
+      brandId: "新西兰:One NZ",
+      startDate: "2030-01-01",
+      expireDate: "2031-01-01",
+      cycle: 1,
+      cycleUnit: "year",
+      renewalHistory: [
+        {
+          renewedAt: "2030-01-01T00:00:00.000Z",
+          source: "manual",
+          mode: "fromExpiry",
+          previousExpireDate: "2030-01-01",
+          newExpireDate: "2031-01-01",
+          cycle: 1,
+          cycleUnit: "year",
+        },
+      ],
+    },
+    {
+      ...sample,
+      id: "custom-norenew",
+      brandId: "",
+      noRenewal: true,
+      cycle: null,
+      expireDate: null,
+    },
+  ]);
+
+  w.openRenewModal("overflow");
+  assert.equal(
+    d.getElementById("renewModal").classList.contains("hidden"),
+    false,
+  );
+  assert.match(
+    d.getElementById("renewPreviewExpiry").textContent,
+    /无法计算新到期日/,
+  );
+  w.closeRenewModal();
+
+  w.openEditModal("unknown-brand");
+  assert.equal(d.getElementById("simBrand").value, "旧地区:已下线品牌");
+  w.closeModal();
+
+  w.openEditModal("one-nz-renewed");
+  d.getElementById("simStartDate").value = "2030-02-01";
+  d.getElementById("simStartDate").dispatchEvent(
+    new w.Event("change", { bubbles: true }),
+  );
+  assert.equal(d.getElementById("simExpire").value, "2031-02-01");
+  w.closeModal();
+
+  w.openEditModal("custom-norenew");
+  d.getElementById("simStartDate").value = "2026-05-01";
+  d.getElementById("simStartDate").dispatchEvent(
+    new w.Event("change", { bubbles: true }),
+  );
+  assert.equal(d.getElementById("expireHint").textContent, "");
+  w.closeModal();
+});
+
+test("filters, archived exclusion, cost summary, batch renew modal, undo renew, quarantine and notify modals", async (t) => {
+  const { w, d, setCards } = await browser(t);
+  const requests = [];
+  const originalFetch = w.fetch;
+  w.fetch = async (url, options = {}) => {
+    if (
+      url.endsWith("/quarantine") &&
+      (!options.method || options.method === "GET")
+    ) {
+      return Response.json([
+        {
+          index: 1,
+          error: "日期无效",
+          raw: { name: "Broken SIM", cycle: "30" },
+        },
+      ]);
+    }
+    if (options.body)
+      requests.push({
+        url,
+        method: options.method,
+        body: JSON.parse(options.body),
+      });
+    else if (options.method === "DELETE")
+      requests.push({ url, method: options.method });
+    return originalFetch(url, options);
+  };
+  w.eval('dataRevision = "1"');
+  const today = todayString();
+  setCards([
+    {
+      ...sample,
+      id: "safe1",
+      name: "Safe UK",
+      number: "+44 123",
+      expireDate: addCalendarCycle(today, 100, "day"),
+      cycle: 1,
+      cycleUnit: "year",
+      renewCost: 1,
+      renewCurrency: "GBP",
+      tags: ["iPhone"],
+      account: "uk@example.com",
+      balance: "£5",
+    },
+    {
+      ...sample,
+      id: "danger1",
+      name: "Due HK",
+      expireDate: today,
+      cycle: 30,
+      cycleUnit: "day",
+      tags: ["主力"],
+      renewalHistory: [
+        {
+          renewedAt: "2026-09-21T08:00:00.000Z",
+          source: "manual",
+          mode: "fromExpiry",
+          previousExpireDate: "2026-08-21",
+          newExpireDate: today,
+          cycle: 30,
+          cycleUnit: "day",
+          cost: 6,
+          currency: "HKD",
+        },
+      ],
+    },
+    {
+      ...sample,
+      id: "arch1",
+      name: "Archived Old",
+      expireDate: today,
+      archived: true,
+    },
+  ]);
+
+  // Archived excluded from active stats and default list
+  assert.deepEqual(
+    [...d.querySelectorAll("#stats-container .text-3xl")].map(
+      (el) => el.textContent,
+    ),
+    ["1", "0", "1"],
+  );
+  assert.equal(d.querySelectorAll("#esim-container [data-id]").length, 2);
+  assert.match(d.getElementById("cost-summary").textContent, /GBP 1/);
+  assert.match(d.getElementById("cost-summary").textContent, /HKD 6/);
+
+  // Stat card click filters to danger, second click resets
+  d.querySelector('#stats-container [data-status-filter="danger"]').click();
+  assert.deepEqual(
+    [...d.querySelectorAll("#esim-container [data-id]")].map(
+      (el) => el.dataset.id,
+    ),
+    ["danger1"],
+  );
+  d.querySelector('#stats-container [data-status-filter="danger"]').click();
+  assert.equal(d.querySelectorAll("#esim-container [data-id]").length, 2);
+
+  // Tag & archived filters
+  d.querySelector('[data-tag-filter="iPhone"]').click();
+  assert.deepEqual(
+    [...d.querySelectorAll("#esim-container [data-id]")].map(
+      (el) => el.dataset.id,
+    ),
+    ["safe1"],
+  );
+  d.querySelector('[data-tag-filter="iPhone"]').click();
+  d.querySelector('#filter-bar [data-status-filter="archived"]').click();
+  assert.deepEqual(
+    [...d.querySelectorAll("#esim-container [data-id]")].map(
+      (el) => el.dataset.id,
+    ),
+    ["arch1"],
+  );
+  d.querySelector('#filter-bar [data-status-filter="all"]').click();
+
+  // Unified batch renew modal
+  w.toggleBatchMode();
+  d.querySelector('[data-select-id="danger1"]').click();
+  w.batchRenew();
+  assert.equal(
+    d.getElementById("renewModal").classList.contains("hidden"),
+    false,
+  );
+  assert.equal(
+    d.getElementById("renewBatchPreview").classList.contains("hidden"),
+    false,
+  );
+  d.querySelector('input[name="renewMode"][value="fromToday"]').checked = true;
+  await w.confirmRenew();
+  assert.equal(requests.at(-1).url, "/api/esims/batch");
+  assert.equal(requests.at(-1).body.renewMode, "fromToday");
+
+  // Undo latest renewal from history modal
+  w.openRenewalHistory("danger1");
+  const undoBtn = d.querySelector('[data-undo-renew="danger1"]');
+  assert(undoBtn);
+  undoBtn.click();
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.deepEqual(requests.at(-1), {
+    url: "/api/esims",
+    method: "PUT",
+    body: { id: "danger1", undoRenew: true },
+  });
+
+  // Quarantine modal repair & clear
+  await w.openQuarantineModal();
+  assert.equal(
+    d.getElementById("quarantineModal").classList.contains("hidden"),
+    false,
+  );
+  d.querySelector('[data-repair-quarantine="0"]').click();
+  assert.equal(
+    d.getElementById("addModal").classList.contains("hidden"),
+    false,
+  );
+  assert.equal(d.getElementById("simName").value, "Broken SIM");
+  w.closeModal();
+  await w.clearQuarantine();
+  assert.deepEqual(requests.at(-1), {
+    url: "/api/esims/quarantine",
+    method: "DELETE",
+    body: {},
+  });
+
+  // Notify settings & test push
+  w.openNotifyModal();
+  d.querySelector('input[name="notifyMode"][value="milestones"]').checked =
+    true;
+  await w.saveNotifySettings();
+  assert.deepEqual(requests.at(-1), {
+    url: "/api/esims/settings",
+    method: "PUT",
+    body: { notifyMode: "milestones" },
+  });
+  await w.sendTelegramTest("test");
+  assert.deepEqual(requests.at(-1), {
+    url: "/api/telegram/test",
+    method: "POST",
+    body: { mode: "test" },
+  });
+});

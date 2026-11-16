@@ -16,6 +16,7 @@ test(
       write: false,
     });
     let code;
+    let webhookSecret;
     const mf = new Miniflare(
       convertV4MiniflareOptions({
         modules: true,
@@ -32,7 +33,8 @@ test(
         outboundService: async (request) => {
           assert.equal(new URL(request.url).hostname, "api.telegram.org");
           const body = await request.json();
-          code = body.text.match(/验证码：(\d{6})/)?.[1];
+          if (body.secret_token) webhookSecret = body.secret_token;
+          if (body.text) code = body.text.match(/验证码：(\d{6})/)?.[1] ?? code;
           return Response.json({ ok: true });
         },
       }),
@@ -89,6 +91,39 @@ test(
     assert.equal(
       (await request("/api/esims", "DELETE", { id: "one" })).status,
       409,
+    );
+    assert.equal(
+      (await request("/api/telegram/buttons", "POST", { enabled: true }))
+        .status,
+      200,
+    );
+    assert.match(webhookSecret, /^[0-9a-f]{64}$/);
+    const press = (secret) =>
+      mf.dispatchFetch("https://panel.invalid/api/telegram/webhook", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Telegram-Bot-Api-Secret-Token": secret,
+        },
+        body: JSON.stringify({
+          update_id: 1,
+          callback_query: {
+            id: "q",
+            data: "re:20260201:one",
+            message: {
+              message_id: 1,
+              chat: { id: "local-fixture" },
+              text: "x",
+            },
+          },
+        }),
+      });
+    assert.equal((await press("wrong")).status, 401);
+    assert.equal((await press(webhookSecret)).status, 200);
+    const afterPress = await (await request("/api/esims")).json();
+    assert.equal(
+      afterPress.find((card) => card.id === "one").expireDate,
+      "2026-03-01",
     );
     assert.equal((await request("/api/auth/logout", "POST")).status, 200);
     assert.equal((await request("/api/esims")).status, 401);

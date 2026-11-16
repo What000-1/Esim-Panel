@@ -14,10 +14,15 @@ let selectedIds = new Set();
 let currentSort = { key: "remainDays", asc: true };
 let searchTimer = null;
 const cardRenderCache = new Map();
-let renewTarget = null; // { id, cycle, cycleUnit, expireDate, name } - 当前续期目标
+let renewTarget = null; // { id, cycle, cycleUnit, expireDate, name } 或 { isBatch: true, cards, ids, visibleIds, revision }
 const SEND_CODE_LABEL =
   '<i class="fa-brands fa-telegram text-xl mr-2"></i> 向 TG 机器人获取验证码';
 let formNoRenewal = false; // 表单当前是否按“无需保号”处理（与界面显示保持一致）
+let telegramButtonsEnabled = false; // 服务端是否已为提醒消息启用续期按钮
+let statusFilter = "all"; // all | safe | warning | danger | noRenewal | archived
+let tagFilter = "";
+let notifyMode = "daily";
+let quarantineItems = [];
 
 // ================= XSS 防护 =================
 function escapeHTML(str) {
@@ -36,8 +41,12 @@ function getCycleUnitLabel(unit) {
   return labels[unit] || "天";
 }
 
-document.getElementById("current-date").innerText =
-  todayString() + "（北京时间）";
+function updateCurrentDate() {
+  document.getElementById("current-date").innerText =
+    todayString() + "（北京时间）";
+}
+
+updateCurrentDate();
 
 window.onload = () => {
   if (sessionStorage.getItem("esim_auth_token")) {
@@ -184,6 +193,16 @@ async function logout(revoke = true) {
   document.getElementById("stats-container").replaceChildren();
   document.getElementById("searchInput").value = "";
   document.getElementById("service-status").textContent = "";
+  document.getElementById("telegramButtonsBtn").classList.add("hidden");
+  telegramButtonsEnabled = false;
+  statusFilter = "all";
+  tagFilter = "";
+  notifyMode = "daily";
+  quarantineItems = [];
+  document.getElementById("cost-summary").classList.add("hidden");
+  document.getElementById("cost-summary").replaceChildren();
+  document.getElementById("status-filter-container").replaceChildren();
+  document.getElementById("tag-filter-container").replaceChildren();
   document
     .getElementById("batchModeBtn")
     .classList.remove("bg-blue-100", "border-blue-300", "text-blue-700");
@@ -196,6 +215,8 @@ async function logout(revoke = true) {
     "renewalHistoryModal",
     "importModal",
     "exportModal",
+    "quarantineModal",
+    "notifyModal",
   ])
     hideDialog(id);
   document.getElementById("addForm").reset();
@@ -233,20 +254,63 @@ function debouncedFilter() {
   }, 150);
 }
 
-// 当前搜索条件下可见的卡片；渲染、全选和批量操作共用同一结果
+function getCardStatus(sim, today = todayString()) {
+  if (sim.archived) return "archived";
+  if (sim.noRenewal) return "noRenewal";
+  const days = daysBetween(today, sim.expireDate);
+  const reminder = sim.reminderDays ?? 15;
+  if (days <= reminder) return "danger";
+  if (days <= reminder * 3) return "warning";
+  return "safe";
+}
+
+function setStatusFilter(filter) {
+  statusFilter = filter !== "all" && statusFilter === filter ? "all" : filter;
+  filterAndRender();
+}
+
+function setTagFilter(tag) {
+  tagFilter = tagFilter === tag ? "" : tag;
+  filterAndRender();
+}
+
+// 当前搜索与筛选条件下可见的卡片；渲染、全选和批量操作共用同一结果
 function filteredEsims() {
   const query = (document.getElementById("searchInput").value || "")
     .trim()
     .toLowerCase();
-  if (!query) return esimData;
+  const today = todayString();
   return esimData.filter((sim) => {
+    const status = getCardStatus(sim, today);
+    if (statusFilter === "archived") {
+      if (status !== "archived") return false;
+    } else {
+      if (status === "archived") return false;
+      if (statusFilter === "safe" && !["safe", "noRenewal"].includes(status))
+        return false;
+      if (
+        ["warning", "danger", "noRenewal"].includes(statusFilter) &&
+        status !== statusFilter
+      )
+        return false;
+    }
+    if (tagFilter && !(sim.tags || []).includes(tagFilter)) return false;
+    if (!query) return true;
     const name = (sim.name || "").toLowerCase();
     const number = (sim.number || "").toLowerCase();
+    const account = (sim.account || "").toLowerCase();
+    const remark = (sim.remark || "").toLowerCase();
+    const tags = (sim.tags || []).join(" ").toLowerCase();
     const brand = (
       PHONE_CARDS.find((card) => card.id === sim.brandId)?.name || ""
     ).toLowerCase();
     return (
-      name.includes(query) || number.includes(query) || brand.includes(query)
+      name.includes(query) ||
+      number.includes(query) ||
+      brand.includes(query) ||
+      account.includes(query) ||
+      remark.includes(query) ||
+      tags.includes(query)
     );
   });
 }
@@ -362,33 +426,12 @@ function updateSelectedCount() {
   all.indeterminate = selected > 0 && selected < boxes.length;
 }
 
-async function batchRenew() {
+function batchRenew() {
   const visible = visibleSelectedEsims();
   if (!visible.length) return alert("请先选择要续期的卡片");
   const selected = visible.filter((s) => !s.noRenewal);
   if (!selected.length) return alert("选中的卡片均无需保号，无需续期");
-  const mode = await showBatchRenewDialog(selected);
-  if (!mode) return;
-  try {
-    await mutate(WORKER_API_URL + "/batch", "PUT", {
-      ids: selected.map((s) => s.id),
-      renewMode: mode,
-    });
-    visible.forEach((s) => selectedIds.delete(s.id));
-    await fetchEsimData();
-  } catch (e) {
-    alert(e.message);
-  }
-}
-
-function showBatchRenewDialog(selected) {
-  return new Promise((resolve) => {
-    const msg = `选中 ${selected.length} 张卡片，请选择续期方式：\n\n1. 基于到期日（推荐）：到期日 + 周期\n2. 基于今天：今天 + 周期`;
-    const choice = prompt(msg + "\n\n请输入 1 或 2：", "1");
-    if (choice === "1") resolve("fromExpiry");
-    else if (choice === "2") resolve("fromToday");
-    else resolve(null);
-  });
+  openBatchRenewModal(selected, visible);
 }
 
 async function batchDelete() {
@@ -451,6 +494,8 @@ async function fetchEsimData() {
     document
       .getElementById("retryNotificationsBtn")
       .classList.toggle("hidden", !status.failedNotifications);
+    notifyMode = status.notifyMode === "milestones" ? "milestones" : "daily";
+    setTelegramButtonsState(!!status.telegramButtons);
   } catch (e) {
     if (generation !== fetchGeneration) return;
     if (sessionStorage.getItem("esim_auth_token")) {
@@ -463,10 +508,122 @@ async function fetchEsimData() {
   }
 }
 
+function renderFilterBars() {
+  const statusContainer = document.getElementById("status-filter-container");
+  const tagContainer = document.getElementById("tag-filter-container");
+  const today = todayString();
+  const counts = {
+    all: 0,
+    safe: 0,
+    warning: 0,
+    danger: 0,
+    noRenewal: 0,
+    archived: 0,
+  };
+  const allTags = new Set();
+  for (const sim of esimData) {
+    const status = getCardStatus(sim, today);
+    if (status === "archived") {
+      counts.archived++;
+    } else {
+      counts.all++;
+      if (status === "noRenewal") {
+        counts.noRenewal++;
+        counts.safe++;
+      } else {
+        counts[status]++;
+      }
+    }
+    for (const tag of sim.tags || []) allTags.add(tag);
+  }
+  if (tagFilter && !allTags.has(tagFilter)) tagFilter = "";
+  const pills = [
+    { key: "all", label: `全部活跃 (${counts.all})` },
+    { key: "danger", label: `告警/过期 (${counts.danger})` },
+    { key: "warning", label: `建议关注 (${counts.warning})` },
+    { key: "safe", label: `安全 (${counts.safe})` },
+    ...(counts.noRenewal
+      ? [{ key: "noRenewal", label: `无需保号 (${counts.noRenewal})` }]
+      : []),
+    ...(counts.archived
+      ? [{ key: "archived", label: `已归档 (${counts.archived})` }]
+      : []),
+  ];
+  statusContainer.innerHTML = pills
+    .map(
+      (pill) =>
+        `<button type="button" data-status-filter="${pill.key}" class="px-2.5 py-1 rounded-full font-semibold border transition-colors ${
+          statusFilter === pill.key
+            ? "bg-blue-600 text-white border-blue-600"
+            : "bg-white/70 text-gray-700 border-gray-200/70 hover:bg-blue-50"
+        }">${escapeHTML(pill.label)}</button>`,
+    )
+    .join("");
+  if (allTags.size) {
+    tagContainer.innerHTML = [...allTags]
+      .sort((a, b) => a.localeCompare(b, "zh-CN"))
+      .map(
+        (tag) =>
+          `<button type="button" data-tag-filter="${escapeHTML(tag)}" class="px-2.5 py-1 rounded-full font-semibold border transition-colors ${
+            tagFilter === tag
+              ? "bg-indigo-600 text-white border-indigo-600"
+              : "bg-indigo-50/80 text-indigo-700 border-indigo-200/70 hover:bg-indigo-100"
+          }"># ${escapeHTML(tag)}</button>`,
+      )
+      .join("");
+  } else {
+    tagContainer.replaceChildren();
+  }
+}
+
+function renderCostSummary() {
+  const el = document.getElementById("cost-summary");
+  const annual = new Map();
+  const spent = new Map();
+  for (const sim of esimData) {
+    if (!sim.archived && !sim.noRenewal && sim.renewCost > 0 && sim.cycle) {
+      const days = cycleDays(sim);
+      if (days > 0) {
+        const cur = sim.renewCurrency || "未知币种";
+        annual.set(cur, (annual.get(cur) || 0) + (sim.renewCost * 365) / days);
+      }
+    }
+    for (const rec of sim.renewalHistory || []) {
+      if (rec.cost > 0) {
+        const cur = rec.currency || sim.renewCurrency || "未知币种";
+        spent.set(cur, (spent.get(cur) || 0) + rec.cost);
+      }
+    }
+  }
+  if (!annual.size && !spent.size) {
+    el.classList.add("hidden");
+    el.replaceChildren();
+    return;
+  }
+  const fmt = (map) =>
+    [...map.entries()]
+      .map(([cur, val]) => `${escapeHTML(cur)} ${Number(val.toFixed(2))}`)
+      .join(" + ");
+  const parts = [];
+  if (annual.size)
+    parts.push(
+      `<span><i class="fa-solid fa-coins text-amber-500 mr-1"></i><strong>预估年保号成本：</strong>${fmt(annual)}</span>`,
+    );
+  if (spent.size)
+    parts.push(
+      `<span><i class="fa-solid fa-receipt text-indigo-500 mr-1"></i><strong>已记录续期支出：</strong>${fmt(spent)}</span>`,
+    );
+  el.innerHTML = parts.join("");
+  el.classList.remove("hidden");
+}
+
 function renderCards(esims) {
   const container = document.getElementById("esim-container");
 
+  updateCurrentDate();
   renderStats();
+  renderCostSummary();
+  renderFilterBars();
 
   // Keep filtered-out cards reusable, but release deleted cards and old sessions.
   const liveIds = new Set(esimData.map((sim) => sim.id));
@@ -488,7 +645,9 @@ function renderCards(esims) {
 
   sorted.forEach((sim) => {
     const noRenewal = sim.noRenewal === true;
-    const diffDays = noRenewal ? Infinity : daysBetween(today, sim.expireDate);
+    const archived = sim.archived === true;
+    const diffDays =
+      noRenewal || archived ? Infinity : daysBetween(today, sim.expireDate);
     const reminderDays = sim.reminderDays ?? 15;
 
     let statusColor = "bg-green-500";
@@ -496,7 +655,12 @@ function renderCards(esims) {
     let badgeClass = "bg-green-100 text-green-800";
     let icon = "fa-check-circle text-green-500";
 
-    if (noRenewal) {
+    if (archived) {
+      statusColor = "bg-gray-400";
+      statusText = "已归档";
+      badgeClass = "bg-gray-200 text-gray-700";
+      icon = "fa-box-archive text-gray-500";
+    } else if (noRenewal) {
       statusText = "无需保号";
       badgeClass = "bg-emerald-100 text-emerald-800";
     } else if (diffDays <= 0) {
@@ -514,7 +678,6 @@ function renderCards(esims) {
       statusText = "建议关注";
       badgeClass = "bg-yellow-100 text-yellow-800";
       icon = "fa-bell text-yellow-500";
-    } else {
     }
 
     let percent = noRenewal
@@ -524,7 +687,28 @@ function renderCards(esims) {
 
     // 渲染备注区域
     const remarkHTML = sim.remark
-      ? `<div class="bg-blue-50/60 rounded-lg p-2.5 mb-4 text-xs text-gray-700 border border-blue-100/60 break-words leading-relaxed"><i class="fa-regular fa-comment-dots mr-1.5 text-blue-400"></i>${escapeHTML(sim.remark)}</div>`
+      ? `<div class="bg-blue-50/60 rounded-lg p-2.5 mb-3 text-xs text-gray-700 border border-blue-100/60 break-words leading-relaxed"><i class="fa-regular fa-comment-dots mr-1.5 text-blue-400"></i>${escapeHTML(sim.remark)}</div>`
+      : "";
+
+    const accountHTML = sim.account
+      ? `<div class="flex items-center justify-between gap-2 text-xs text-gray-600 mb-2 bg-white/60 rounded-lg px-2.5 py-1.5 border border-gray-100"><span class="truncate"><i class="fa-regular fa-user mr-1.5 text-gray-400"></i>${escapeHTML(sim.account)}</span><button type="button" data-action="copy" data-copy-text="${escapeHTML(sim.account)}" class="text-gray-400 hover:text-blue-600 flex-shrink-0" title="复制账号/载体"><i class="fa-regular fa-copy"></i></button></div>`
+      : "";
+
+    const metaChips = [];
+    if (sim.balance)
+      metaChips.push(
+        `<span class="bg-emerald-50 text-emerald-700 border border-emerald-100 px-2 py-0.5 rounded-full">余额: ${escapeHTML(sim.balance)}</span>`,
+      );
+    if (sim.renewCost != null)
+      metaChips.push(
+        `<span class="bg-indigo-50 text-indigo-700 border border-indigo-100 px-2 py-0.5 rounded-full">每次: ${escapeHTML(sim.renewCost)}${sim.renewCurrency ? " " + escapeHTML(sim.renewCurrency) : ""}</span>`,
+      );
+    for (const tag of sim.tags || [])
+      metaChips.push(
+        `<span class="bg-gray-100 text-gray-700 px-2 py-0.5 rounded-full"># ${escapeHTML(tag)}</span>`,
+      );
+    const metaHTML = metaChips.length
+      ? `<div class="flex flex-wrap gap-1.5 mb-3 text-[11px] font-medium">${metaChips.join("")}</div>`
       : "";
 
     const renewalHistoryCount = Array.isArray(sim.renewalHistory)
@@ -534,10 +718,14 @@ function renderCards(esims) {
       ? `<span class="absolute -top-1 -right-1 min-w-4 h-4 px-1 rounded-full bg-violet-600 text-white text-[9px] font-bold flex items-center justify-center">${renewalHistoryCount}</span>`
       : "";
 
-    // 自动延期标签
+    // 自动延期与静音标签
     const autoRenewBadge =
-      !noRenewal && sim.autoRenew
+      !noRenewal && !archived && sim.autoRenew
         ? '<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-100 text-indigo-700 whitespace-nowrap flex-shrink-0"><i class="fa-solid fa-arrows-rotate mr-0.5"></i>自动延期</span>'
+        : "";
+    const mutedBadge =
+      !noRenewal && !archived && sim.muteReminders
+        ? '<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-700 whitespace-nowrap flex-shrink-0"><i class="fa-solid fa-bell-slash mr-0.5"></i>已静音</span>'
         : "";
 
     // 周期显示
@@ -568,7 +756,7 @@ function renderCards(esims) {
       ? '<p class="text-sm font-semibold text-emerald-700">无需设置保号期限</p>'
       : `<div class="flex justify-between text-sm font-semibold mb-2">
                         <span class="text-gray-700">剩余时间</span>
-                        <span class="text-gray-900 font-bold ${diffDays <= reminderDays && diffDays > 0 ? "text-red-600" : ""}">${diffDays < 0 ? "0" : diffDays} 天</span>
+                        <span class="text-gray-900 font-bold ${!archived && diffDays <= reminderDays && diffDays > 0 ? "text-red-600" : ""}">${diffDays < 0 ? "0" : diffDays} 天</span>
                     </div>
                     <div class="w-full bg-gray-200/60 rounded-full h-3 mb-2 shadow-inner">
                         <div class="${statusColor} h-3 rounded-full shadow-sm transition-all duration-1000" style="width: ${percent}%"></div>
@@ -578,8 +766,12 @@ function renderCards(esims) {
                         <span>到期日: ${escapeHTML(sim.expireDate)}</span>
                     </div>`;
 
+    const copyNumberBtn = sim.number
+      ? `<button type="button" data-action="copy" data-copy-text="${escapeHTML(sim.number)}" class="text-gray-400 hover:text-blue-600 flex-shrink-0" title="复制号码"><i class="fa-regular fa-copy"></i></button>`
+      : "";
+
     const cardHTML = `
-            <div class="glass-card rounded-2xl p-6 relative overflow-hidden group flex flex-col h-full ${isSelected ? "card-selected" : ""}" data-id="${escapeHTML(sim.id)}">
+            <div class="glass-card rounded-2xl p-6 relative overflow-hidden group flex flex-col h-full ${isSelected ? "card-selected" : ""} ${archived ? "opacity-80" : ""}" data-id="${escapeHTML(sim.id)}">
                 ${checkboxHTML}
 
                 <!-- 操作按钮组 -->
@@ -610,20 +802,25 @@ function renderCards(esims) {
                 ${brandHTML}
 
                 <!-- 号码与状态区域 -->
-                <div class="flex justify-between items-center mb-4 gap-2">
+                <div class="flex justify-between items-center mb-3 gap-2">
                     <p class="text-gray-600 font-mono text-sm flex items-center gap-1.5 truncate">
                         ${flagEmoji}
                         <span class="truncate">${escapeHTML(sim.number || "未登记号码")}</span>
+                        ${copyNumberBtn}
                     </p>
                     <!-- 状态标签 -->
-                    <div class="flex items-center gap-1.5 flex-shrink-0">
+                    <div class="flex items-center gap-1.5 flex-shrink-0 flex-wrap justify-end">
                         ${autoRenewBadge}
+                        ${mutedBadge}
                         ${reminderLabel}
                         <span class="px-2.5 py-1 rounded-full text-[11px] font-bold shadow-sm whitespace-nowrap flex-shrink-0 ${badgeClass}">
                             <i class="fa-solid ${icon} mr-1"></i>${statusText}
                         </span>
                     </div>
                 </div>
+
+                ${accountHTML}
+                ${metaHTML}
 
                 <!-- 备注/保号要求区域 -->
                 ${remarkHTML}
@@ -662,12 +859,26 @@ async function submitForm(e) {
   const btn = document.getElementById("submitBtn");
   btn.disabled = true;
   btn.textContent = "保存中...";
+  const tags = (document.getElementById("simTags").value || "")
+    .split(/[,，]/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+  const renewCostRaw = document.getElementById("simRenewCost").value;
   const payload = {
     brandId: document.getElementById("simBrand").value,
     // Submit what the form shows: brand changes and the stored card both set it.
     noRenewal: formNoRenewal,
+    archived: document.getElementById("simArchived").checked,
+    muteReminders:
+      document.getElementById("simMuteReminders").checked &&
+      !document.getElementById("simMuteReminders").disabled,
     name: document.getElementById("simName").value,
     number: document.getElementById("simNumber").value,
+    account: document.getElementById("simAccount").value,
+    balance: document.getElementById("simBalance").value,
+    renewCost: renewCostRaw === "" ? null : Number(renewCostRaw),
+    renewCurrency: document.getElementById("simRenewCurrency").value.trim(),
+    tags,
     startDate: document.getElementById("simStartDate").value,
     expireDate: document.getElementById("simExpire").value || null,
     cycle:
@@ -702,20 +913,80 @@ async function submitForm(e) {
   }
 }
 
+function previewRenewDate(base, cycle, unit) {
+  try {
+    return "新到期日：" + addCalendarCycle(base, cycle, unit);
+  } catch (e) {
+    return "无法计算新到期日：" + e.message;
+  }
+}
+
 function openRenewModal(id) {
   const sim = esimData.find((s) => s.id === id);
   if (!sim) return;
-  renewTarget = { ...sim, revision: dataRevision };
+  renewTarget = { ...sim, isBatch: false, revision: dataRevision };
   document.getElementById("renewSimInfo").textContent =
     sim.name + " | 周期: " + sim.cycle + " " + getCycleUnitLabel(sim.cycleUnit);
-  document.getElementById("renewPreviewExpiry").textContent =
-    "新到期日：" + addCalendarCycle(sim.expireDate, sim.cycle, sim.cycleUnit);
-  document.getElementById("renewPreviewToday").textContent =
-    "新到期日：" + addCalendarCycle(todayString(), sim.cycle, sim.cycleUnit);
+  document.getElementById("renewPreviewExpiry").textContent = previewRenewDate(
+    sim.expireDate,
+    sim.cycle,
+    sim.cycleUnit,
+  );
+  document.getElementById("renewPreviewToday").textContent = previewRenewDate(
+    todayString(),
+    sim.cycle,
+    sim.cycleUnit,
+  );
+  document.getElementById("renewBatchPreview").classList.add("hidden");
+  document.getElementById("renewCostBox").classList.remove("hidden");
+  document.getElementById("renewCostInput").value = sim.renewCost ?? "";
+  document.getElementById("renewCurrencyInput").value = sim.renewCurrency || "";
   document.querySelector(
     'input[name="renewMode"][value="fromExpiry"]',
   ).checked = true;
   showDialog("renewModal");
+}
+
+function openBatchRenewModal(selected, visible) {
+  renewTarget = {
+    isBatch: true,
+    cards: selected,
+    ids: selected.map((s) => s.id),
+    visibleIds: visible.map((s) => s.id),
+    revision: dataRevision,
+  };
+  document.getElementById("renewSimInfo").textContent =
+    `批量续期已选中的 ${selected.length} 张卡片`;
+  document.getElementById("renewPreviewExpiry").textContent =
+    "将按各卡原到期日顺延一个周期";
+  document.getElementById("renewPreviewToday").textContent =
+    "将按今天日期重新计算一个周期";
+  document.getElementById("renewCostBox").classList.add("hidden");
+  document.querySelector(
+    'input[name="renewMode"][value="fromExpiry"]',
+  ).checked = true;
+  updateRenewPreview();
+  showDialog("renewModal");
+}
+
+function updateRenewPreview() {
+  if (!renewTarget?.isBatch) return;
+  const mode = document.querySelector('input[name="renewMode"]:checked').value;
+  const today = todayString();
+  const box = document.getElementById("renewBatchPreview");
+  box.innerHTML = renewTarget.cards
+    .map((card) => {
+      const base = mode === "fromExpiry" ? card.expireDate : today;
+      let next;
+      try {
+        next = addCalendarCycle(base, card.cycle, card.cycleUnit);
+      } catch (e) {
+        next = e.message;
+      }
+      return `<div class="flex justify-between gap-2"><span class="font-semibold text-gray-700 truncate">${escapeHTML(card.name)}</span><span class="text-blue-600 font-mono flex-shrink-0">${escapeHTML(card.expireDate)} → ${escapeHTML(next)}</span></div>`;
+    })
+    .join("");
+  box.classList.remove("hidden");
 }
 
 function closeRenewModal() {
@@ -726,20 +997,47 @@ function closeRenewModal() {
 async function confirmRenew() {
   if (!renewTarget) return;
   const mode = document.querySelector('input[name="renewMode"]:checked').value;
+  const btn = document.getElementById("confirmRenewBtn");
+  btn.disabled = true;
   try {
-    await mutate(
-      WORKER_API_URL,
-      "PUT",
-      {
-        id: renewTarget.id,
-        renewMode: mode,
-      },
-      renewTarget.revision,
-    );
+    if (renewTarget.isBatch) {
+      await mutate(
+        WORKER_API_URL + "/batch",
+        "PUT",
+        {
+          ids: renewTarget.ids,
+          renewMode: mode,
+        },
+        renewTarget.revision,
+      );
+      renewTarget.visibleIds.forEach((id) => selectedIds.delete(id));
+    } else {
+      const costRaw = document.getElementById("renewCostInput").value;
+      const currency = document
+        .getElementById("renewCurrencyInput")
+        .value.trim();
+      await mutate(
+        WORKER_API_URL,
+        "PUT",
+        {
+          id: renewTarget.id,
+          renewMode: mode,
+          ...(costRaw !== "" || renewTarget.renewCost != null
+            ? {
+                renewCost: costRaw === "" ? null : Number(costRaw),
+                renewCurrency: currency,
+              }
+            : {}),
+        },
+        renewTarget.revision,
+      );
+    }
     closeRenewModal();
     await fetchEsimData();
   } catch (e) {
     alert(e.message);
+  } finally {
+    btn.disabled = false;
   }
 }
 
@@ -767,6 +1065,7 @@ function openRenewalHistory(id) {
     manual: "手动续期",
     batch: "批量续期",
     auto: "自动延期",
+    telegram: "TG 按钮续期",
   };
   const modeLabels = {
     fromExpiry: "基于原到期日",
@@ -794,7 +1093,14 @@ function openRenewalHistory(id) {
                   <i class="fa-solid fa-arrow-right text-violet-400"></i>
                   <span class="text-violet-700">${escapeHTML(record.newExpireDate)}</span>
                 </div>
-                <p class="mt-2 text-xs text-gray-500">${escapeHTML(modeLabels[record.mode] || record.mode)} · 周期 ${escapeHTML(record.cycle)} ${escapeHTML(getCycleUnitLabel(record.cycleUnit))}</p>
+                <p class="mt-2 text-xs text-gray-500">${escapeHTML(modeLabels[record.mode] || record.mode)} · 周期 ${escapeHTML(record.cycle)} ${escapeHTML(getCycleUnitLabel(record.cycleUnit))}${record.cost != null ? ` · 花费 ${escapeHTML(record.cost)}${record.currency ? " " + escapeHTML(record.currency) : ""}` : ""}</p>
+                ${
+                  index === 0 &&
+                  !sim.noRenewal &&
+                  sim.expireDate === record.newExpireDate
+                    ? `<div class="mt-3 pt-2.5 border-t border-violet-100 flex justify-end"><button type="button" data-undo-renew="${escapeHTML(sim.id)}" class="text-xs font-semibold text-amber-700 hover:text-amber-900 bg-amber-50 hover:bg-amber-100 px-3 py-1 rounded-lg border border-amber-200"><i class="fa-solid fa-rotate-left mr-1"></i>撤销此次续期</button></div>`
+                    : ""
+                }
               </div>
             </article>`,
         )
@@ -805,6 +1111,17 @@ function openRenewalHistory(id) {
          <p class="text-xs mt-1">完成手动、批量或自动续期后会显示在这里</p>
        </div>`;
   showDialog("renewalHistoryModal");
+}
+
+async function undoLastRenewal(id) {
+  if (!confirm("确定撤销最近一次续期并恢复原到期日？")) return;
+  try {
+    await mutate(WORKER_API_URL, "PUT", { id, undoRenew: true });
+    closeRenewalHistoryModal();
+    await fetchEsimData();
+  } catch (e) {
+    alert(e.message);
+  }
 }
 
 function closeRenewalHistoryModal() {
@@ -820,8 +1137,32 @@ async function deleteEsim(id) {
   }
 }
 
+function shouldUseInitialCycle(preset, cycle, unit, cycleWasEdited) {
+  if (!preset?.initialCycle || cycleWasEdited) return false;
+  if (cycle !== preset.cycle || unit !== preset.unit) return false;
+  if (!editingId) return true;
+  const editingCard = esimData.find((s) => s.id === editingId);
+  if (!editingCard || editingCard.brandId !== preset.id) return true;
+  if (editingCard.renewalHistory?.length) return false;
+  if (editingCard.startDate && editingCard.expireDate) {
+    try {
+      return (
+        editingCard.expireDate ===
+        addCalendarCycle(
+          editingCard.startDate,
+          preset.initialCycle,
+          preset.initialUnit,
+        )
+      );
+    } catch {
+      return false;
+    }
+  }
+  return false;
+}
+
 function autoCalcExpireDate(trigger) {
-  if (selectedPhoneCard()?.noRenewal) return;
+  if (formNoRenewal) return;
   const cycle = Number(document.getElementById("simCycle").value);
   const unit = document.getElementById("simCycleUnit").value;
   const start = document.getElementById("simStartDate").value;
@@ -829,11 +1170,7 @@ function autoCalcExpireDate(trigger) {
   const cycleWasEdited = ["simCycle", "simCycleUnit"].includes(
     trigger?.target?.id,
   );
-  const useInitial =
-    preset?.initialCycle &&
-    !cycleWasEdited &&
-    cycle === preset.cycle &&
-    unit === preset.unit;
+  const useInitial = shouldUseInitialCycle(preset, cycle, unit, cycleWasEdited);
   try {
     document.getElementById("simExpire").value = addCalendarCycle(
       start,
@@ -862,15 +1199,18 @@ function setNoRenewalFields(noRenewal) {
     "simExpireGroup",
     "simReminderGroup",
     "simAutoRenewGroup",
+    "simMuteGroup",
   ])
     document.getElementById(id).classList.toggle("hidden", noRenewal);
   document.getElementById("simCycle").required = !noRenewal;
   document.getElementById("simExpire").required = !noRenewal;
   document.getElementById("simAutoRenew").disabled = noRenewal;
+  document.getElementById("simMuteReminders").disabled = noRenewal;
   if (noRenewal) {
     document.getElementById("simCycle").value = "";
     document.getElementById("simExpire").value = "";
     document.getElementById("simAutoRenew").checked = false;
+    document.getElementById("simMuteReminders").checked = false;
   }
 }
 
@@ -916,9 +1256,12 @@ function normalizePhoneCardSearch(value) {
     .replace(/[\s\p{P}\p{S}]+/gu, "");
 }
 
-function populatePhoneCards(query = "") {
+function populatePhoneCards(
+  query = "",
+  preservedId = document.getElementById("simBrand").value,
+) {
   const select = document.getElementById("simBrand");
-  const selectedId = select.value;
+  const selectedId = preservedId;
   const search = normalizePhoneCardSearch(query);
   const matches = PHONE_CARDS.filter((card) =>
     normalizePhoneCardSearch(card.region + card.name).includes(search),
@@ -930,6 +1273,12 @@ function populatePhoneCards(query = "") {
   custom.value = "";
   custom.textContent = "自定义 / 未列出";
   select.replaceChildren(custom);
+  if (selectedId && !PHONE_CARDS.some((card) => card.id === selectedId)) {
+    const saved = document.createElement("option");
+    saved.value = selectedId;
+    saved.textContent = `已保存品牌（${selectedId}）`;
+    select.append(saved);
+  }
   const groups = new Map();
   for (const card of visibleCards) {
     let group = groups.get(card.region);
@@ -970,7 +1319,14 @@ function openModal() {
   document.getElementById("simStartDate").value = getTodayStr();
   document.getElementById("simCycleUnit").value = "day";
   document.getElementById("simAutoRenew").checked = false;
+  document.getElementById("simMuteReminders").checked = false;
+  document.getElementById("simArchived").checked = false;
   document.getElementById("simReminderDays").value = "";
+  document.getElementById("simAccount").value = "";
+  document.getElementById("simTags").value = "";
+  document.getElementById("simBalance").value = "";
+  document.getElementById("simRenewCost").value = "";
+  document.getElementById("simRenewCurrency").value = "";
   document.getElementById("expireHint").innerHTML = "";
 
   showDialog("addModal");
@@ -986,12 +1342,17 @@ function openEditModal(id) {
     '<i class="fa-solid fa-pen-to-square text-green-600"></i> 编辑 eSIM';
 
   document.getElementById("simBrandSearch").value = "";
-  populatePhoneCards();
+  populatePhoneCards("", sim.brandId || "");
   document.getElementById("simName").value = sim.name || "";
   document.getElementById("simBrand").value = sim.brandId || "";
   document.getElementById("simName").dataset.presetBrand = sim.brandId || "";
   updatePhoneCardHint();
   document.getElementById("simNumber").value = sim.number || "";
+  document.getElementById("simAccount").value = sim.account || "";
+  document.getElementById("simTags").value = (sim.tags || []).join(", ");
+  document.getElementById("simBalance").value = sim.balance || "";
+  document.getElementById("simRenewCost").value = sim.renewCost ?? "";
+  document.getElementById("simRenewCurrency").value = sim.renewCurrency || "";
   document.getElementById("simStartDate").value =
     sim.startDate || getTodayStr();
   document.getElementById("simCycle").value = sim.cycle ?? "";
@@ -999,6 +1360,8 @@ function openEditModal(id) {
   document.getElementById("simRemark").value = sim.remark || "";
   document.getElementById("simExpire").value = sim.expireDate || "";
   document.getElementById("simAutoRenew").checked = !!sim.autoRenew;
+  document.getElementById("simMuteReminders").checked = !!sim.muteReminders;
+  document.getElementById("simArchived").checked = !!sim.archived;
   document.getElementById("simReminderDays").value = sim.reminderDays ?? "";
   document.getElementById("expireHint").innerHTML = "";
   // The stored flag wins over the brand preset until the user picks a brand.
@@ -1070,7 +1433,7 @@ function exportData() {
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
     closeExportModal();
   } catch (e) {
     console.error(e);
@@ -1165,6 +1528,7 @@ function renderStats() {
     dangerCount = 0;
   const today = todayString();
   for (const sim of esimData) {
+    if (sim.archived) continue;
     if (sim.noRenewal) {
       safeCount++;
       continue;
@@ -1175,33 +1539,40 @@ function renderStats() {
     else if (days <= reminder * 3) warningCount++;
     else safeCount++;
   }
-  // 统计区域（基于全部数据，而非过滤后的）
+  // 统计区域（基于全部活跃数据，而非过滤后的）
   const container = document.getElementById("stats-container");
   const counts = [safeCount, warningCount, dangerCount];
+  const keys = ["safe", "warning", "danger"];
   const current = [...container.querySelectorAll(".text-3xl")];
   if (current.length === 3) {
     current.forEach((node, index) => {
       if (node.textContent !== String(counts[index]))
         node.textContent = String(counts[index]);
+      const card = node.closest("[data-status-filter]");
+      if (card) {
+        const active = statusFilter === keys[index];
+        card.classList.toggle("ring-2", active);
+        card.classList.toggle("ring-blue-500", active);
+      }
     });
     return;
   }
   container.innerHTML = `
-        <div class="glass-card rounded-2xl p-5 flex items-center justify-between border-l-4 border-l-green-500">
+        <div role="button" tabindex="0" data-status-filter="safe" class="glass-card cursor-pointer rounded-2xl p-5 flex items-center justify-between border-l-4 border-l-green-500 ${statusFilter === "safe" ? "ring-2 ring-blue-500" : ""}">
             <div>
                 <p class="text-gray-500 text-sm font-bold uppercase">安全卡片</p>
                 <p class="text-3xl font-black text-gray-800 mt-1">${safeCount}</p>
             </div>
             <i class="fa-solid fa-shield text-4xl text-green-200"></i>
         </div>
-        <div class="glass-card rounded-2xl p-5 flex items-center justify-between border-l-4 border-l-yellow-400">
+        <div role="button" tabindex="0" data-status-filter="warning" class="glass-card cursor-pointer rounded-2xl p-5 flex items-center justify-between border-l-4 border-l-yellow-400 ${statusFilter === "warning" ? "ring-2 ring-blue-500" : ""}">
             <div>
                 <p class="text-gray-500 text-sm font-bold uppercase">建议关注</p>
                 <p class="text-3xl font-black text-gray-800 mt-1">${warningCount}</p>
             </div>
             <i class="fa-solid fa-clock text-4xl text-yellow-200"></i>
         </div>
-        <div class="glass-card rounded-2xl p-5 flex items-center justify-between border-l-4 border-l-red-500">
+        <div role="button" tabindex="0" data-status-filter="danger" class="glass-card cursor-pointer rounded-2xl p-5 flex items-center justify-between border-l-4 border-l-red-500 ${statusFilter === "danger" ? "ring-2 ring-blue-500" : ""}">
             <div>
                 <p class="text-gray-500 text-sm font-bold uppercase">告警/过期</p>
                 <p class="text-3xl font-black text-gray-800 mt-1">${dangerCount}</p>
@@ -1251,8 +1622,10 @@ async function downloadQuarantine() {
     const a = document.createElement("a");
     a.href = url;
     a.download = "esim-records-to-repair.json";
+    document.body.appendChild(a);
     a.click();
-    URL.revokeObjectURL(url);
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
   } catch (e) {
     alert(e.message);
   }
@@ -1261,6 +1634,170 @@ async function retryNotifications() {
   try {
     await mutate(WORKER_API_URL + "/notifications/retry", "POST", {});
     await fetchEsimData();
+  } catch (e) {
+    alert(e.message);
+  }
+}
+function setTelegramButtonsState(enabled) {
+  telegramButtonsEnabled = enabled;
+  document.getElementById("telegramButtonsBtn").classList.remove("hidden");
+  document.getElementById("telegramButtonsLabel").textContent = enabled
+    ? "关闭 TG 按钮续期"
+    : "启用 TG 按钮续期";
+}
+async function openQuarantineModal() {
+  try {
+    const response = await apiRequest(WORKER_API_URL + "/quarantine", {
+      headers: getAuthHeaders(),
+    });
+    quarantineItems = await response.json();
+    const list = document.getElementById("quarantineList");
+    list.innerHTML = quarantineItems.length
+      ? quarantineItems
+          .map(
+            (item, idx) => `
+          <div class="rounded-xl border border-amber-200 bg-amber-50/50 p-3 text-xs">
+            <div class="flex items-center justify-between gap-2 mb-1.5">
+              <span class="font-bold text-amber-800">第 ${escapeHTML(item.index ?? idx + 1)} 条 · ${escapeHTML(item.error)}</span>
+              ${
+                item.raw && typeof item.raw === "object"
+                  ? `<button type="button" data-repair-quarantine="${idx}" class="bg-blue-600 hover:bg-blue-700 text-white px-2.5 py-1 rounded-lg font-semibold">填入表单修复</button>`
+                  : ""
+              }
+            </div>
+            <pre class="overflow-x-auto bg-white/80 rounded-lg p-2 text-[11px] text-gray-700">${escapeHTML(JSON.stringify(item.raw, null, 2))}</pre>
+          </div>`,
+          )
+          .join("")
+      : '<p class="text-sm text-gray-500 text-center py-6">当前没有待修正记录</p>';
+    showDialog("quarantineModal");
+  } catch (e) {
+    alert(e.message);
+  }
+}
+
+function closeQuarantineModal() {
+  hideDialog("quarantineModal");
+}
+
+function repairQuarantineItem(idx) {
+  const item = quarantineItems[idx];
+  if (!item?.raw || typeof item.raw !== "object") return;
+  const raw = item.raw;
+  closeQuarantineModal();
+  openModal();
+  if (typeof raw.name === "string")
+    document.getElementById("simName").value = raw.name;
+  if (typeof raw.number === "string")
+    document.getElementById("simNumber").value = raw.number;
+  if (typeof raw.remark === "string")
+    document.getElementById("simRemark").value = raw.remark;
+  if (typeof raw.account === "string")
+    document.getElementById("simAccount").value = raw.account;
+  if (
+    typeof raw.startDate === "string" &&
+    /^\d{4}-\d{2}-\d{2}$/.test(raw.startDate)
+  )
+    document.getElementById("simStartDate").value = raw.startDate;
+  if (
+    typeof raw.expireDate === "string" &&
+    /^\d{4}-\d{2}-\d{2}$/.test(raw.expireDate)
+  )
+    document.getElementById("simExpire").value = raw.expireDate;
+  if (raw.cycle != null && /^\d+$/.test(String(raw.cycle)))
+    document.getElementById("simCycle").value = String(raw.cycle);
+  if (["day", "month", "quarter", "year"].includes(raw.cycleUnit))
+    document.getElementById("simCycleUnit").value = raw.cycleUnit;
+}
+
+async function clearQuarantine() {
+  if (!confirm("确定清空所有待修正记录提示？请确认已完成备份下载或重新录入。"))
+    return;
+  try {
+    await mutate(WORKER_API_URL + "/quarantine", "DELETE", {});
+    quarantineItems = [];
+    closeQuarantineModal();
+    await fetchEsimData();
+  } catch (e) {
+    alert(e.message);
+  }
+}
+
+function openNotifyModal() {
+  const input = document.querySelector(
+    `input[name="notifyMode"][value="${notifyMode}"]`,
+  );
+  if (input) input.checked = true;
+  showDialog("notifyModal");
+}
+
+function closeNotifyModal() {
+  hideDialog("notifyModal");
+}
+
+async function saveNotifySettings() {
+  const selected =
+    document.querySelector('input[name="notifyMode"]:checked')?.value ||
+    "daily";
+  try {
+    await mutate(WORKER_API_URL + "/settings", "PUT", {
+      notifyMode: selected,
+    });
+    notifyMode = selected;
+    alert("通知频率设置已保存");
+    closeNotifyModal();
+  } catch (e) {
+    alert(e.message);
+  }
+}
+
+async function sendTelegramTest(mode = "test") {
+  try {
+    await mutate("/api/telegram/test", "POST", { mode });
+    alert(
+      mode === "summary"
+        ? "已向 Telegram 发送到期汇总"
+        : "测试消息已发送，请检查 Telegram",
+    );
+  } catch (e) {
+    alert(e.message);
+  }
+}
+
+async function copyCardText(text, button) {
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+    } else {
+      const area = document.createElement("textarea");
+      area.value = text;
+      document.body.appendChild(area);
+      area.select();
+      document.execCommand("copy");
+      document.body.removeChild(area);
+    }
+    const icon = button.querySelector("i");
+    if (icon) {
+      icon.className = "fa-solid fa-check text-green-600";
+      setTimeout(() => {
+        icon.className = "fa-regular fa-copy";
+      }, 1200);
+    }
+  } catch {
+    alert("复制失败，请手动复制");
+  }
+}
+
+async function toggleTelegramButtons() {
+  const enable = !telegramButtonsEnabled;
+  const question = enable
+    ? "启用后，Telegram 提醒消息下会显示「从到期日续期」「从今天续期」按钮，点击即可在看板中续期。\n\n启用会为机器人设置 Webhook，此后无法再用 getUpdates 查询 Chat ID。是否继续？"
+    : "关闭后，之后的提醒消息不再带续期按钮，已发出的按钮也会失效。是否继续？";
+  if (!confirm(question)) return;
+  try {
+    await mutate("/api/telegram/buttons", "POST", { enabled: enable });
+    setTelegramButtonsState(enable);
+    alert(enable ? "已启用 TG 按钮续期" : "已关闭 TG 按钮续期");
   } catch (e) {
     alert(e.message);
   }
@@ -1283,6 +1820,10 @@ document
 document.getElementById("esim-container").addEventListener("click", (event) => {
   const button = event.target.closest("[data-action]");
   if (!button) return;
+  if (button.dataset.action === "copy") {
+    copyCardText(button.dataset.copyText || "", button);
+    return;
+  }
   const actions = {
     edit: openEditModal,
     renew: openRenewModal,
@@ -1290,6 +1831,39 @@ document.getElementById("esim-container").addEventListener("click", (event) => {
     delete: deleteEsim,
   };
   actions[button.dataset.action]?.(button.dataset.cardId);
+});
+document
+  .getElementById("renewalHistoryList")
+  .addEventListener("click", (event) => {
+    const button = event.target.closest("[data-undo-renew]");
+    if (button) undoLastRenewal(button.dataset.undoRenew);
+  });
+document.getElementById("quarantineList").addEventListener("click", (event) => {
+  const button = event.target.closest("[data-repair-quarantine]");
+  if (button) repairQuarantineItem(Number(button.dataset.repairQuarantine));
+});
+document
+  .getElementById("stats-container")
+  .addEventListener("click", (event) => {
+    const card = event.target.closest("[data-status-filter]");
+    if (card) setStatusFilter(card.dataset.statusFilter);
+  });
+document
+  .getElementById("stats-container")
+  .addEventListener("keydown", (event) => {
+    if (event.key === "Enter" || event.key === " ") {
+      const card = event.target.closest("[data-status-filter]");
+      if (card) {
+        event.preventDefault();
+        setStatusFilter(card.dataset.statusFilter);
+      }
+    }
+  });
+document.getElementById("filter-bar").addEventListener("click", (event) => {
+  const statusBtn = event.target.closest("[data-status-filter]");
+  if (statusBtn) setStatusFilter(statusBtn.dataset.statusFilter);
+  const tagBtn = event.target.closest("[data-tag-filter]");
+  if (tagBtn) setTagFilter(tagBtn.dataset.tagFilter);
 });
 document
   .getElementById("esim-container")
@@ -1313,6 +1887,8 @@ document.addEventListener("keydown", (event) => {
         renewalHistoryModal: closeRenewalHistoryModal,
         importModal: closeImportModal,
         exportModal: closeExportModal,
+        quarantineModal: closeQuarantineModal,
+        notifyModal: closeNotifyModal,
       };
       closers[modal.id]();
     } else if (

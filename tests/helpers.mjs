@@ -38,6 +38,9 @@ export async function fixture(legacy = [], env = {}) {
       async setAlarm(time) {
         state.alarmAt = time;
       },
+      async deleteAlarm() {
+        state.alarmAt = null;
+      },
     },
     blockConcurrencyWhile(fn) {
       state.ready = fn();

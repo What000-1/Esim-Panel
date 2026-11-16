@@ -49,11 +49,39 @@ function validTimestamp(value) {
     throw new HttpError(400, "续期时间无效");
   return value;
 }
+function validAmount(value, key) {
+  if (value === undefined || value === null || value === "") return null;
+  if (
+    typeof value !== "number" ||
+    !Number.isFinite(value) ||
+    value < 0 ||
+    value > 1000000
+  )
+    throw new HttpError(400, `${key}必须为 0–1000000 的数字`);
+  return Math.round(value * 10000) / 10000;
+}
+function validTags(value) {
+  if (value === undefined || value === null) return [];
+  if (!Array.isArray(value)) throw new HttpError(400, "标签必须为数组");
+  const seen = new Set();
+  for (const item of value) {
+    const tag = text(item, "标签", 30);
+    seen.add(tag);
+    if (seen.size > 10) throw new HttpError(400, "最多设置 10 个标签");
+  }
+  return [...seen];
+}
+function validBool(value, key, legacy) {
+  const raw = legacy && value === null ? undefined : value;
+  if (raw !== undefined && typeof raw !== "boolean")
+    throw new HttpError(400, `${key}必须为布尔值`);
+  return raw ?? false;
+}
 function validateRenewalRecord(value) {
   const record = object(value);
   const source = record.source;
   const mode = record.mode;
-  if (!["manual", "batch", "auto"].includes(source))
+  if (!["manual", "batch", "auto", "telegram"].includes(source))
     throw new HttpError(400, "续期来源无效");
   if (!["fromExpiry", "fromToday"].includes(mode))
     throw new HttpError(400, "续期方式无效");
@@ -65,7 +93,7 @@ function validateRenewalRecord(value) {
     throw new HttpError(400, "续期周期必须为 1–36500 的整数");
   if (!["day", "month", "quarter", "year"].includes(record.cycleUnit))
     throw new HttpError(400, "续期周期单位无效");
-  return {
+  const result = {
     renewedAt: validTimestamp(record.renewedAt),
     source,
     mode,
@@ -74,6 +102,13 @@ function validateRenewalRecord(value) {
     cycle: record.cycle,
     cycleUnit: record.cycleUnit,
   };
+  if (record.previousStartDate != null)
+    result.previousStartDate = validDate(record.previousStartDate);
+  const cost = validAmount(record.cost, "续期费用");
+  if (cost !== null) result.cost = cost;
+  const currency = text(record.currency, "费用币种", 10, true).toUpperCase();
+  if (currency) result.currency = currency;
+  return result;
 }
 export function validateCard(value, { legacy = false } = {}) {
   const card = object(value);
@@ -82,9 +117,19 @@ export function validateCard(value, { legacy = false } = {}) {
   const brandId = text(card.brandId, "电话卡品牌", 100, true);
   const number = text(card.number, "号码", 50, true);
   const remark = text(card.remark, "备注", 500, true);
-  if (card.noRenewal !== undefined && typeof card.noRenewal !== "boolean")
-    throw new HttpError(400, "无需保号标记必须为布尔值");
-  const noRenewal = card.noRenewal ?? false;
+  const account = text(card.account, "账号或载体", 120, true);
+  const balance = text(card.balance, "当前余额", 40, true);
+  const renewCost = validAmount(card.renewCost, "保号费用");
+  const renewCurrency = text(
+    card.renewCurrency,
+    "费用币种",
+    10,
+    true,
+  ).toUpperCase();
+  const tags = validTags(card.tags);
+  const archived = validBool(card.archived, "归档标记", legacy);
+  const muteReminders = validBool(card.muteReminders, "暂停提醒标记", legacy);
+  const noRenewal = validBool(card.noRenewal, "无需保号标记", legacy);
   const expireDate = noRenewal ? null : validDate(card.expireDate);
   const startDate =
     card.startDate == null || (legacy && !card.startDate)
@@ -92,8 +137,8 @@ export function validateCard(value, { legacy = false } = {}) {
       : validDate(card.startDate);
   const cycle = noRenewal
     ? null
-    : legacy && typeof card.cycle === "string" && /^\d+$/.test(card.cycle)
-      ? Number(card.cycle)
+    : legacy && typeof card.cycle === "string" && /^\s*\d+\s*$/.test(card.cycle)
+      ? Number(card.cycle.trim())
       : card.cycle;
   const cycleUnit = card.cycleUnit ?? "day";
   if (!noRenewal && (!Number.isInteger(cycle) || cycle < 1 || cycle > 36500))
@@ -107,16 +152,24 @@ export function validateCard(value, { legacy = false } = {}) {
       throw new HttpError(400, e.message);
     }
   }
-  const reminderDays = card.reminderDays ?? 15;
+  const reminderDaysRaw =
+    legacy &&
+    typeof card.reminderDays === "string" &&
+    /^\s*\d+\s*$/.test(card.reminderDays)
+      ? Number(card.reminderDays.trim())
+      : card.reminderDays;
+  const reminderDays = reminderDaysRaw ?? 15;
   if (
     !Number.isInteger(reminderDays) ||
     reminderDays < 0 ||
     reminderDays > 3650
   )
     throw new HttpError(400, "提前提醒天数必须为 0–3650 的整数");
-  if (card.autoRenew !== undefined && typeof card.autoRenew !== "boolean")
-    throw new HttpError(400, "自动延期必须为布尔值");
-  let createdAt = card.createdAt ?? null;
+  const autoRenew = validBool(card.autoRenew, "自动延期", legacy);
+  let createdAt =
+    card.createdAt == null || (legacy && card.createdAt === "")
+      ? null
+      : card.createdAt;
   if (
     createdAt !== null &&
     (typeof createdAt !== "string" ||
@@ -141,14 +194,21 @@ export function validateCard(value, { legacy = false } = {}) {
     name,
     brandId,
     noRenewal,
+    archived,
+    muteReminders,
     number,
     remark,
+    account,
+    balance,
+    renewCost,
+    renewCurrency,
+    tags,
     startDate,
     expireDate,
     cycle,
     cycleUnit,
     reminderDays,
-    autoRenew: noRenewal ? false : (card.autoRenew ?? false),
+    autoRenew: noRenewal ? false : autoRenew,
     createdAt,
     renewalHistory: renewalHistory.map((record, index) => {
       try {

@@ -7,7 +7,13 @@ import {
   validateCard,
   validateList,
 } from "./validation.js";
-import { todayString, addCalendarCycle, daysBetween } from "../shared/dates.js";
+import {
+  todayString,
+  addCalendarCycle,
+  daysBetween,
+  cycleDays,
+} from "../shared/dates.js";
+import { summarizeCosts } from "../shared/costs.js";
 import {
   sendTelegram,
   telegramApi,
@@ -208,10 +214,47 @@ export class EsimStore {
       }
       if (path === "/api/esims/settings" && request.method === "PUT") {
         const body = await readJSON(request);
-        if (!["daily", "milestones"].includes(body.notifyMode))
-          throw new HttpError(400, "提醒频率设置无效");
-        this.put("settings:notifications", { notifyMode: body.notifyMode });
-        return json({ success: true, notifyMode: body.notifyMode });
+        const current = this.get("settings:notifications") || {};
+        const next = { ...current };
+        if (body.notifyMode !== undefined) {
+          if (!["daily", "milestones"].includes(body.notifyMode))
+            throw new HttpError(400, "提醒频率设置无效");
+          next.notifyMode = body.notifyMode;
+        }
+        if (body.exchangeRates !== undefined) {
+          if (
+            !body.exchangeRates ||
+            typeof body.exchangeRates !== "object" ||
+            Array.isArray(body.exchangeRates)
+          )
+            throw new HttpError(400, "汇率设置格式无效");
+          const entries = Object.entries(body.exchangeRates);
+          if (entries.length > 50)
+            throw new HttpError(400, "自定义汇率最多支持 50 个币种");
+          const cleaned = {};
+          for (const [rawKey, val] of entries) {
+            const code = String(rawKey).trim().toUpperCase();
+            if (!/^[A-Z0-9]{1,10}$/.test(code))
+              throw new HttpError(400, `币种代码无效：${rawKey}`);
+            if (
+              typeof val !== "number" ||
+              !Number.isFinite(val) ||
+              val <= 0 ||
+              val > 100000
+            )
+              throw new HttpError(400, `${code} 汇率必须为大于 0 的有效数字`);
+            cleaned[code] = Math.round(val * 1000000) / 1000000;
+          }
+          next.exchangeRates = cleaned;
+        }
+        if (body.notifyMode === undefined && body.exchangeRates === undefined)
+          throw new HttpError(400, "缺少要保存的设置项");
+        this.put("settings:notifications", next);
+        return json({
+          success: true,
+          notifyMode: this.notifyMode(),
+          exchangeRates: this.exchangeRates(),
+        });
       }
       if (path === "/api/esims/status" && request.method === "GET") {
         const notices = this.list("notice:");
@@ -225,6 +268,7 @@ export class EsimStore {
           ).length,
           telegramButtons: !!this.get("telegram:webhook"),
           notifyMode: this.notifyMode(),
+          exchangeRates: this.exchangeRates(),
         });
       }
       if (path === "/api/esims" && request.method === "GET")
@@ -329,6 +373,12 @@ export class EsimStore {
   notifyMode() {
     const mode = this.get("settings:notifications")?.notifyMode;
     return mode === "milestones" ? "milestones" : "daily";
+  }
+  exchangeRates() {
+    const rates = this.get("settings:notifications")?.exchangeRates;
+    return rates && typeof rates === "object" && !Array.isArray(rates)
+      ? rates
+      : {};
   }
   renew(card, mode, source, costOverride) {
     if (card.noRenewal) throw new HttpError(400, "该卡无需保号，不能续期");
@@ -583,11 +633,12 @@ export class EsimStore {
     const cmd = match[1].toLowerCase();
     const arg = (match[2] || "").trim();
     const today = todayString();
-    const snapshot = await this.serial(() => {
+    const state = await this.serial(() => {
       if (!this.get("telegram:webhook")) return null;
-      return this.cards();
+      return { cards: this.cards(), rates: this.exchangeRates() };
     });
-    if (!snapshot) return;
+    if (!state) return;
+    const snapshot = state.cards;
     const send = (text, extra = {}) =>
       sendTelegram(this.env, text, extra).catch((e) =>
         console.error("Telegram command reply failed", cmd, e.message),
@@ -608,8 +659,58 @@ export class EsimStore {
       );
     if (cmd === "start" || cmd === "help") {
       await send(
-        "📋 eSIM 保号看板指令：\n/due - 查看已过期与即将到期的卡片（可直接在 TG 内续期）\n/list - 查看全部活跃卡片\n/search 关键词 - 按名称、号码、账号、标签或备注查询",
+        "📋 eSIM 保号看板指令：\n/due - 查看已过期与即将到期的卡片（可直接在 TG 内续期）\n/stats - 查看资产状态统计与年度保号费用估算\n/list - 查看全部活跃卡片\n/search 关键词 - 按名称、号码、账号、标签或备注查询",
       );
+      return;
+    }
+    if (cmd === "stats") {
+      let safe = 0;
+      let noRenewal = 0;
+      let warning = 0;
+      let danger = 0;
+      for (const card of active) {
+        if (card.noRenewal) {
+          noRenewal++;
+          safe++;
+          continue;
+        }
+        const days = daysBetween(today, card.expireDate);
+        const reminder = card.reminderDays ?? 15;
+        if (days <= reminder) danger++;
+        else if (days <= reminder * 3) warning++;
+        else safe++;
+      }
+      const archived = snapshot.length - active.length;
+      const summary = summarizeCosts(snapshot, {
+        getCycleDays: cycleDays,
+        rates: state.rates,
+      });
+      const formatBucket = (bucket) => {
+        if (!bucket.byCurrency.size) return "暂无记录";
+        const items = [...bucket.byCurrency.entries()]
+          .map(([cur, val]) => `${cur} ${Number(val.toFixed(2))}`)
+          .join(" + ");
+        if (bucket.totalCny === null) return items;
+        const suffix = bucket.unmapped.length
+          ? `，未含 ${bucket.unmapped.join("、")}`
+          : "";
+        return `${items}（约合 CNY ¥${bucket.totalCny}${suffix}）`;
+      };
+      const lines = [
+        "📊 eSIM 保号看板统计",
+        "",
+        `📱 活跃卡片：${active.length} 张${archived ? `（已归档 ${archived} 张）` : ""}`,
+        `🔴 告警 / 已过期：${danger} 张`,
+        `🟡 建议关注：${warning} 张`,
+        `🟢 安全${noRenewal ? `（含无需保号 ${noRenewal} 张）` : ""}：${safe} 张`,
+      ];
+      if (summary.annual.byCurrency.size)
+        lines.push(`💰 预估年保号成本：${formatBucket(summary.annual)}`);
+      if (summary.spent.byCurrency.size)
+        lines.push(`🧾 已记录续期支出：${formatBucket(summary.spent)}`);
+      if (danger > 0)
+        lines.push("", "提示：发送 /due 可查看待处理卡片并直接续期。");
+      await send(lines.join("\n"));
       return;
     }
     if (cmd === "due") {

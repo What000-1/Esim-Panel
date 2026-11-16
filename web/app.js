@@ -22,6 +22,7 @@ let telegramButtonsEnabled = false; // 服务端是否已为提醒消息启用�
 let statusFilter = "all"; // all | safe | warning | danger | noRenewal | archived
 let tagFilter = "";
 let notifyMode = "daily";
+let customExchangeRates = {};
 let quarantineItems = [];
 
 // ================= XSS 防护 =================
@@ -198,6 +199,7 @@ async function logout(revoke = true) {
   statusFilter = "all";
   tagFilter = "";
   notifyMode = "daily";
+  customExchangeRates = {};
   quarantineItems = [];
   document.getElementById("cost-summary").classList.add("hidden");
   document.getElementById("cost-summary").replaceChildren();
@@ -217,6 +219,7 @@ async function logout(revoke = true) {
     "exportModal",
     "quarantineModal",
     "notifyModal",
+    "ratesModal",
   ])
     hideDialog(id);
   document.getElementById("addForm").reset();
@@ -495,6 +498,11 @@ async function fetchEsimData() {
       .getElementById("retryNotificationsBtn")
       .classList.toggle("hidden", !status.failedNotifications);
     notifyMode = status.notifyMode === "milestones" ? "milestones" : "daily";
+    customExchangeRates =
+      status.exchangeRates && typeof status.exchangeRates === "object"
+        ? status.exchangeRates
+        : {};
+    renderCostSummary();
     setTelegramButtonsState(!!status.telegramButtons);
   } catch (e) {
     if (generation !== fetchGeneration) return;
@@ -578,41 +586,37 @@ function renderFilterBars() {
 
 function renderCostSummary() {
   const el = document.getElementById("cost-summary");
-  const annual = new Map();
-  const spent = new Map();
-  for (const sim of esimData) {
-    if (!sim.archived && !sim.noRenewal && sim.renewCost > 0 && sim.cycle) {
-      const days = cycleDays(sim);
-      if (days > 0) {
-        const cur = sim.renewCurrency || "未知币种";
-        annual.set(cur, (annual.get(cur) || 0) + (sim.renewCost * 365) / days);
-      }
-    }
-    for (const rec of sim.renewalHistory || []) {
-      if (rec.cost > 0) {
-        const cur = rec.currency || sim.renewCurrency || "未知币种";
-        spent.set(cur, (spent.get(cur) || 0) + rec.cost);
-      }
-    }
-  }
-  if (!annual.size && !spent.size) {
+  const summary = summarizeCosts(esimData, {
+    getCycleDays: cycleDays,
+    rates: customExchangeRates,
+  });
+  if (!summary.annual.byCurrency.size && !summary.spent.byCurrency.size) {
     el.classList.add("hidden");
     el.replaceChildren();
     return;
   }
-  const fmt = (map) =>
-    [...map.entries()]
+  const fmt = (bucket) => {
+    const items = [...bucket.byCurrency.entries()]
       .map(([cur, val]) => `${escapeHTML(cur)} ${Number(val.toFixed(2))}`)
       .join(" + ");
+    if (bucket.totalCny === null) return items;
+    const unmappedNote = bucket.unmapped.length
+      ? `，未含 ${bucket.unmapped.map(escapeHTML).join("、")}`
+      : "";
+    return `${items} <span class="text-amber-700 font-semibold">（折合 CNY ¥${bucket.totalCny}${unmappedNote}）</span>`;
+  };
   const parts = [];
-  if (annual.size)
+  if (summary.annual.byCurrency.size)
     parts.push(
-      `<span><i class="fa-solid fa-coins text-amber-500 mr-1"></i><strong>预估年保号成本：</strong>${fmt(annual)}</span>`,
+      `<span><i class="fa-solid fa-coins text-amber-500 mr-1"></i><strong>预估年保号成本：</strong>${fmt(summary.annual)}</span>`,
     );
-  if (spent.size)
+  if (summary.spent.byCurrency.size)
     parts.push(
-      `<span><i class="fa-solid fa-receipt text-indigo-500 mr-1"></i><strong>已记录续期支出：</strong>${fmt(spent)}</span>`,
+      `<span><i class="fa-solid fa-receipt text-indigo-500 mr-1"></i><strong>已记录续期支出：</strong>${fmt(summary.spent)}</span>`,
     );
+  parts.push(
+    `<button type="button" data-open-rates class="ml-auto bg-white/80 hover:bg-white text-indigo-700 font-semibold px-2.5 py-1 rounded-lg border border-indigo-200/80"><i class="fa-solid fa-sliders mr-1"></i>汇率设置</button>`,
+  );
   el.innerHTML = parts.join("");
   el.classList.remove("hidden");
 }
@@ -1764,6 +1768,108 @@ async function sendTelegramTest(mode = "test") {
   }
 }
 
+let editingRatesDraft = {};
+
+function openRatesModal() {
+  const effective = resolveCnyRates(customExchangeRates);
+  const used = new Set(["USD", "HKD", "GBP", "EUR", "JPY"]);
+  for (const sim of esimData) {
+    if (sim.renewCurrency) used.add(sim.renewCurrency.toUpperCase());
+    for (const rec of sim.renewalHistory || []) {
+      if (rec.currency) used.add(rec.currency.toUpperCase());
+    }
+  }
+  for (const code of Object.keys(customExchangeRates || {})) used.add(code);
+  used.delete("CNY");
+  used.delete("RMB");
+  editingRatesDraft = {};
+  for (const code of [...used].sort()) {
+    if (effective[code]) editingRatesDraft[code] = effective[code];
+  }
+  renderRatesEditor();
+  document.getElementById("newRateCode").value = "";
+  document.getElementById("newRateValue").value = "";
+  showDialog("ratesModal");
+}
+
+function closeRatesModal() {
+  hideDialog("ratesModal");
+}
+
+function renderRatesEditor() {
+  const container = document.getElementById("ratesList");
+  const entries = Object.entries(editingRatesDraft).sort(([a], [b]) =>
+    a.localeCompare(b),
+  );
+  container.innerHTML = entries
+    .map(
+      ([code, val]) => `
+      <div class="flex items-center gap-2 text-xs">
+        <span class="w-16 font-bold text-gray-700">${escapeHTML(code)}</span>
+        <span class="text-gray-400">1 ${escapeHTML(code)} =</span>
+        <input type="number" min="0.000001" max="100000" step="any" data-rate-code="${escapeHTML(code)}" value="${escapeHTML(val)}" aria-label="${escapeHTML(code)} 汇率" class="min-w-0 flex-1 px-2.5 py-1.5 rounded-lg border border-gray-300 bg-white/80" />
+        <span class="text-gray-500">CNY</span>
+      </div>`,
+    )
+    .join("");
+}
+
+function collectRatesDraftInputs() {
+  for (const input of document.querySelectorAll(
+    "#ratesList [data-rate-code]",
+  )) {
+    const val = Number(input.value);
+    if (Number.isFinite(val) && val > 0)
+      editingRatesDraft[input.dataset.rateCode] = val;
+  }
+}
+
+function addRateRow() {
+  collectRatesDraftInputs();
+  const code = (document.getElementById("newRateCode").value || "")
+    .trim()
+    .toUpperCase();
+  const val = Number(document.getElementById("newRateValue").value);
+  if (!/^[A-Z0-9]{1,10}$/.test(code))
+    return alert("请输入 1–10 位字母或数字的币种代码");
+  if (!Number.isFinite(val) || val <= 0 || val > 100000)
+    return alert("请输入大于 0 的有效汇率数字");
+  editingRatesDraft[code] = val;
+  document.getElementById("newRateCode").value = "";
+  document.getElementById("newRateValue").value = "";
+  renderRatesEditor();
+}
+
+function resetDefaultRates() {
+  for (const code of Object.keys(editingRatesDraft)) {
+    if (DEFAULT_CNY_RATES[code])
+      editingRatesDraft[code] = DEFAULT_CNY_RATES[code];
+    else delete editingRatesDraft[code];
+  }
+  renderRatesEditor();
+}
+
+async function saveRatesSettings() {
+  collectRatesDraftInputs();
+  const overrides = {};
+  for (const [code, val] of Object.entries(editingRatesDraft)) {
+    if (!Number.isFinite(val) || val <= 0 || val > 100000)
+      return alert(`${code} 汇率无效`);
+    if (DEFAULT_CNY_RATES[code] !== val) overrides[code] = val;
+  }
+  try {
+    const response = await mutate(WORKER_API_URL + "/settings", "PUT", {
+      exchangeRates: overrides,
+    });
+    const data = await response.json();
+    customExchangeRates = data.exchangeRates || overrides;
+    renderCostSummary();
+    closeRatesModal();
+  } catch (e) {
+    alert(e.message);
+  }
+}
+
 async function copyCardText(text, button) {
   try {
     if (navigator.clipboard?.writeText) {
@@ -1865,6 +1971,9 @@ document.getElementById("filter-bar").addEventListener("click", (event) => {
   const tagBtn = event.target.closest("[data-tag-filter]");
   if (tagBtn) setTagFilter(tagBtn.dataset.tagFilter);
 });
+document.getElementById("cost-summary").addEventListener("click", (event) => {
+  if (event.target.closest("[data-open-rates]")) openRatesModal();
+});
 document
   .getElementById("esim-container")
   .addEventListener("change", (event) => {
@@ -1889,6 +1998,7 @@ document.addEventListener("keydown", (event) => {
         exportModal: closeExportModal,
         quarantineModal: closeQuarantineModal,
         notifyModal: closeNotifyModal,
+        ratesModal: closeRatesModal,
       };
       closers[modal.id]();
     } else if (

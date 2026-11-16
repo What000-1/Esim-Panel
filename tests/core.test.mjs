@@ -917,6 +917,36 @@ test("undo renewal, cost tracking, tags, quarantine clear, milestones, mute/arch
   assert.match(calls.at(-1).body.text, /全部活跃卡片（共 4 张）/);
 
   assert.equal(
+    (
+      await f.request("/api/esims/settings", "PUT", {
+        exchangeRates: { GBP: -1 },
+      })
+    ).status,
+    400,
+  );
+  assert.equal(
+    (
+      await f.request("/api/esims/settings", "PUT", {
+        exchangeRates: { GBP: 10 },
+      })
+    ).status,
+    200,
+  );
+  const statusAfterRates = await (await f.request("/api/esims/status")).json();
+  assert.deepEqual(statusAfterRates.exchangeRates, { GBP: 10 });
+  assert.equal(statusAfterRates.notifyMode, "milestones");
+
+  assert.equal((await cmd("/stats")).status, 200);
+  const statsMsg = calls.at(-1).body.text;
+  assert.match(statsMsg, /活跃卡片：4 张（已归档 1 张）/);
+  assert.match(statsMsg, /告警 \/ 已过期：2 张/);
+  assert.match(statsMsg, /预估年保号成本：GBP/);
+  assert.match(statsMsg, /约合 CNY ¥/);
+
+  assert.equal((await cmd("/help")).status, 200);
+  assert.match(calls.at(-1).body.text, /\/stats/);
+
+  assert.equal(
     (await f.request("/api/telegram/test", "POST", { mode: "summary" })).status,
     200,
   );

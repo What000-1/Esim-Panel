@@ -38,6 +38,9 @@ html = html.replace(/<[^>]+>/g, (tag) => {
 const dates = (
   await readFile(new URL("../shared/dates.js", import.meta.url), "utf8")
 ).replace(/^export /gm, "");
+const costs = (
+  await readFile(new URL("../shared/costs.js", import.meta.url), "utf8")
+).replace(/^export /gm, "");
 const css = (
   await postcss([
     tailwindcss({
@@ -63,6 +66,8 @@ const assets = {
     type: "application/javascript; charset=utf-8",
     body:
       dates +
+      "\n" +
+      costs +
       "\n" +
       flags +
       "\n" +

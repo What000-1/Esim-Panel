@@ -1088,9 +1088,84 @@
           <p class="text-[11px] text-gray-500 leading-relaxed pt-1">
             启用「TG 按钮续期」后，可在 Telegram 对机器人发送
             <code>/due</code
-            >（查看即将到期并附续期按钮）、<code>/list</code>（活跃卡片）或
+            >（即将到期并附续期按钮）、<code>/stats</code>（资产与年费统计）、<code>/list</code>（活跃卡片）或
             <code>/search 关键词</code>。
           </p>
+        </div>
+      </div>
+    </div>
+
+    <!-- 汇率折算设置模态框 -->
+    <div
+      id="ratesModal"
+      role="dialog"
+      aria-modal="true"
+      aria-label="汇率折算设置"
+      class="fixed inset-0 bg-black/50 z-50 hidden flex items-center justify-center p-4"
+    >
+      <div
+        class="glass-card w-full max-w-md rounded-2xl p-6 shadow-2xl relative transition-all duration-300 transform scale-95 opacity-0 max-h-[90vh] overflow-y-auto"
+      >
+        <button
+          aria-label="关闭汇率设置"
+          onclick="closeRatesModal()"
+          class="absolute top-4 right-4 text-gray-500 hover:text-red-500 text-xl"
+        >
+          <i class="fa-solid fa-xmark"></i>
+        </button>
+        <h3
+          class="text-xl font-bold text-gray-900 mb-2 flex items-center gap-2 pr-8"
+        >
+          <i class="fa-solid fa-coins text-amber-500"></i>
+          汇率折算设置（折合 CNY）
+        </h3>
+        <p class="text-xs text-gray-600 mb-4">
+          1 外币折合人民币（CNY）的参考汇率，用于面板成本总览与 TG
+          <code>/stats</code> 统计；可随时按实际汇率修改。
+        </p>
+        <div id="ratesList" class="space-y-2 mb-4"></div>
+        <div class="flex gap-2 mb-5">
+          <input
+            type="text"
+            id="newRateCode"
+            maxlength="10"
+            aria-label="新增币种代码"
+            placeholder="币种代码如 TRY"
+            class="w-28 px-3 py-2 rounded-xl border border-gray-300 text-xs bg-white/80 uppercase"
+          />
+          <input
+            type="number"
+            id="newRateValue"
+            min="0.000001"
+            max="100000"
+            step="any"
+            aria-label="新增币种对人民币汇率"
+            placeholder="1 外币 = ? CNY"
+            class="min-w-0 flex-1 px-3 py-2 rounded-xl border border-gray-300 text-xs bg-white/80"
+          />
+          <button
+            type="button"
+            onclick="addRateRow()"
+            class="bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-semibold px-3 py-2 rounded-xl border border-indigo-200 text-xs"
+          >
+            添加
+          </button>
+        </div>
+        <div class="flex gap-2">
+          <button
+            type="button"
+            onclick="resetDefaultRates()"
+            class="bg-white/80 hover:bg-white text-gray-700 font-semibold py-2.5 px-3 rounded-xl border border-gray-200 text-xs"
+          >
+            恢复默认
+          </button>
+          <button
+            type="button"
+            onclick="saveRatesSettings()"
+            class="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-bold py-2.5 px-4 rounded-xl text-sm shadow-sm"
+          >
+            保存汇率设置
+          </button>
         </div>
       </div>
     </div>

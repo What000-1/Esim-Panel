@@ -890,4 +890,25 @@ test("filters, archived exclusion, cost summary, batch renew modal, undo renew, 
     method: "POST",
     body: { mode: "test" },
   });
+
+  // CNY conversion and exchange rates modal
+  assert.match(d.getElementById("cost-summary").textContent, /折合 CNY ¥/);
+  w.openRatesModal();
+  assert.equal(
+    d.getElementById("ratesModal").classList.contains("hidden"),
+    false,
+  );
+  const gbpInput = d.querySelector('#ratesList [data-rate-code="GBP"]');
+  gbpInput.value = "10";
+  d.getElementById("newRateCode").value = "TRY";
+  d.getElementById("newRateValue").value = "0.21";
+  w.addRateRow();
+  assert(d.querySelector('#ratesList [data-rate-code="TRY"]'));
+  await w.saveRatesSettings();
+  assert.deepEqual(requests.at(-1), {
+    url: "/api/esims/settings",
+    method: "PUT",
+    body: { exchangeRates: { GBP: 10, TRY: 0.21 } },
+  });
+  assert.match(d.getElementById("cost-summary").textContent, /CNY ¥10/);
 });

@@ -70,11 +70,9 @@ export function safeEqual(a, b) {
   return diff === 0;
 }
 
-// callback_data: r<e|t>:<YYYYMMDD expiry when sent>:<card id>, at most 64 bytes.
-// The expiry makes a repeated or stale press a no-op instead of a second renewal.
-export function renewButtons(cardId, expireDate) {
-  const date = expireDate.replaceAll("-", "");
-  const data = (mode) => `r${mode}:${date}:${cardId}`;
+// callback_data: r2<e|t>:<card version in base 36>:<card id>, at most 64 bytes.
+export function renewButtons(cardId, version) {
+  const data = (mode) => `r2${mode}:${version}:${cardId}`;
   if (new TextEncoder().encode(data("e")).length > 64) return null;
   return {
     inline_keyboard: [
@@ -87,8 +85,19 @@ export function renewButtons(cardId, expireDate) {
 }
 
 export function parseRenewCallback(data) {
+  if (typeof data !== "string") return null;
+  const versioned = /^r2([et]):([0-9a-z]{1,11}):([A-Za-z0-9_-]{1,80})$/.exec(
+    data,
+  );
+  if (versioned)
+    return {
+      mode: versioned[1] === "e" ? "fromExpiry" : "fromToday",
+      version: versioned[2],
+      cardId: versioned[3],
+    };
+  // Previously sent date-only buttons can be used while a card is unversioned.
   const match = /^r([et]):(\d{4})(\d{2})(\d{2}):([A-Za-z0-9_-]{1,80})$/.exec(
-    typeof data === "string" ? data : "",
+    data,
   );
   if (!match) return null;
   return {

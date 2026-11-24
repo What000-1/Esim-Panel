@@ -102,8 +102,11 @@ function validateRenewalRecord(value) {
     cycle: record.cycle,
     cycleUnit: record.cycleUnit,
   };
-  if (record.previousStartDate != null)
-    result.previousStartDate = validDate(record.previousStartDate);
+  if (record.previousStartDate !== undefined)
+    result.previousStartDate =
+      record.previousStartDate === null
+        ? null
+        : validDate(record.previousStartDate);
   const cost = validAmount(record.cost, "续期费用");
   if (cost !== null) result.cost = cost;
   const currency = text(record.currency, "费用币种", 10, true).toUpperCase();

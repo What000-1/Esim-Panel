@@ -17,6 +17,7 @@ test(
     });
     let code;
     let webhookSecret;
+    let callbackData;
     const mf = new Miniflare(
       convertV4MiniflareOptions({
         modules: true,
@@ -35,6 +36,9 @@ test(
           const body = await request.json();
           if (body.secret_token) webhookSecret = body.secret_token;
           if (body.text) code = body.text.match(/验证码：(\d{6})/)?.[1] ?? code;
+          callbackData =
+            body.reply_markup?.inline_keyboard?.[0]?.[0]?.callback_data ??
+            callbackData;
           return Response.json({ ok: true });
         },
       }),
@@ -98,25 +102,30 @@ test(
       200,
     );
     assert.match(webhookSecret, /^[0-9a-f]{64}$/);
-    const press = (secret) =>
+    const webhook = (secret, payload) =>
       mf.dispatchFetch("https://panel.invalid/api/telegram/webhook", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           "X-Telegram-Bot-Api-Secret-Token": secret,
         },
-        body: JSON.stringify({
-          update_id: 1,
-          callback_query: {
-            id: "q",
-            data: "re:20260201:one",
-            message: {
-              message_id: 1,
-              chat: { id: "local-fixture" },
-              text: "x",
-            },
-          },
-        }),
+        body: JSON.stringify(payload),
+      });
+    const chat = { id: "local-fixture" };
+    const search = await webhook(webhookSecret, {
+      update_id: 1,
+      message: { message_id: 1, chat, text: "/search updated" },
+    });
+    assert.equal(search.status, 200);
+    assert.match(callbackData, /^r2e:/);
+    const press = (secret) =>
+      webhook(secret, {
+        update_id: 2,
+        callback_query: {
+          id: "q",
+          data: callbackData,
+          message: { message_id: 2, chat, text: "x" },
+        },
       });
     assert.equal((await press("wrong")).status, 401);
     assert.equal((await press(webhookSecret)).status, 200);

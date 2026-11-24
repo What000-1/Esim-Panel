@@ -5,7 +5,7 @@ import vm from "node:vm";
 import assets from "../worker/generated-ui.js";
 import worker from "../worker/entry.js";
 import { todayString, addCalendarCycle } from "../shared/dates.js";
-import { sample } from "./helpers.mjs";
+import { fixture, sample } from "./helpers.mjs";
 import { PHONE_CARDS } from "../shared/phone-cards.js";
 async function browser(t) {
   const dom = new JSDOM(assets["/"].body, {
@@ -465,7 +465,7 @@ test("old encrypted backups decode, overwrite requires confirmation, and stale i
   assert.equal(writes, 1);
   assert.equal(received.data[0].name, "Restored");
   assert.equal(received.mode, "overwrite");
-  assert.equal(revision, w.eval("importRevision"));
+  assert.equal(revision, '"10"');
   assert.notEqual(revision, w.eval("dataRevision"));
   assert(alerts.includes("错误: conflict"));
 });
@@ -710,6 +710,52 @@ test("renew modal handles overflow dates, edit preserves unknown brands and One 
   w.closeModal();
 });
 
+test("a pending batch renewal refreshes the cards after its dialog is closed", async (t) => {
+  const { w, d, alerts } = await browser(t);
+  const reply = Promise.withResolvers();
+  t.after(() => reply.resolve());
+  const other = { ...sample, id: "two", name: "Another SIM" };
+  const nextDate = addCalendarCycle(sample.expireDate, 1, "month");
+  const originalFetch = w.fetch;
+  let saved = false;
+  let loads = 0;
+  w.fetch = async (url, options) => {
+    if (url === "/api/esims/batch") {
+      assert.equal(options.method, "PUT");
+      assert.deepEqual(JSON.parse(options.body).ids, [sample.id]);
+      await reply.promise;
+      saved = true;
+      return Response.json({ success: true });
+    }
+    if (url === "/api/esims") {
+      loads++;
+      return Response.json(
+        [saved ? { ...sample, expireDate: nextDate } : sample, other],
+        { headers: { "X-Data-Revision": saved ? "2" : "1" } },
+      );
+    }
+    return originalFetch(url, options);
+  };
+  w.sessionStorage.setItem("esim_auth_token", "local");
+  await w.fetchEsimData();
+  w.toggleBatchMode();
+  d.querySelector('[data-select-id="one"]').click();
+  w.batchRenew();
+  const saving = w.confirmRenew();
+  const modal = d.getElementById("renewModal");
+  d.dispatchEvent(new w.KeyboardEvent("keydown", { key: "Escape" }));
+  assert(modal.classList.contains("hidden"));
+  d.querySelector('[data-action="renew"][data-card-id="two"]').click();
+  assert(!modal.classList.contains("hidden"));
+  reply.resolve();
+  await saving;
+  assert.deepEqual(alerts, []);
+  assert.equal(loads, 2);
+  assert(d.querySelector('[data-id="one"]').textContent.includes(nextDate));
+  assert(!modal.classList.contains("hidden"));
+  assert.match(d.getElementById("renewSimInfo").textContent, /Another SIM/);
+});
+
 test("filters, archived exclusion, cost summary, batch renew modal, undo renew, quarantine and notify modals", async (t) => {
   const { w, d, setCards } = await browser(t);
   const requests = [];
@@ -764,6 +810,17 @@ test("filters, archived exclusion, cost summary, batch renew modal, undo renew, 
       tags: ["主力"],
       renewalHistory: [
         {
+          renewedAt: "2026-08-21T08:00:00.000Z",
+          source: "auto",
+          mode: "fromToday",
+          previousExpireDate: "2026-07-22",
+          newExpireDate: "2026-08-21",
+          cycle: 30,
+          cycleUnit: "day",
+          cost: 999,
+          currency: "JPY",
+        },
+        {
           renewedAt: "2026-09-21T08:00:00.000Z",
           source: "manual",
           mode: "fromExpiry",
@@ -795,6 +852,7 @@ test("filters, archived exclusion, cost summary, batch renew modal, undo renew, 
   assert.equal(d.querySelectorAll("#esim-container [data-id]").length, 2);
   assert.match(d.getElementById("cost-summary").textContent, /GBP 1/);
   assert.match(d.getElementById("cost-summary").textContent, /HKD 6/);
+  assert.doesNotMatch(d.getElementById("cost-summary").textContent, /JPY/);
 
   // Stat card click filters to danger, second click resets
   d.querySelector('#stats-container [data-status-filter="danger"]').click();
@@ -823,6 +881,9 @@ test("filters, archived exclusion, cost summary, batch renew modal, undo renew, 
     ),
     ["arch1"],
   );
+  const archived = d.querySelector('[data-id="arch1"]');
+  assert(archived.textContent.includes(today));
+  assert.doesNotMatch(archived.textContent, /Infinity|剩余时间/);
   d.querySelector('#filter-bar [data-status-filter="all"]').click();
 
   // Unified batch renew modal
@@ -844,6 +905,9 @@ test("filters, archived exclusion, cost summary, batch renew modal, undo renew, 
 
   // Undo latest renewal from history modal
   w.openRenewalHistory("danger1");
+  const historyText = d.getElementById("renewalHistoryList").textContent;
+  assert.match(historyText, /自动延期/);
+  assert.doesNotMatch(historyText, /花费 999/);
   const undoBtn = d.querySelector('[data-undo-renew="danger1"]');
   assert(undoBtn);
   undoBtn.click();
@@ -911,4 +975,196 @@ test("filters, archived exclusion, cost summary, batch renew modal, undo renew, 
     body: { exchangeRates: { GBP: 10, TRY: 0.21 } },
   });
   assert.match(d.getElementById("cost-summary").textContent, /CNY ¥10/);
+});
+
+async function browserWithCards(t, cards = [sample]) {
+  const page = await browser(t);
+  const f = await fixture(cards);
+  t.after(f.close);
+  page.w.fetch = (url, options) =>
+    f.store.fetch(new Request(new URL(url, page.w.location.href), options));
+  page.w.sessionStorage.setItem("esim_auth_token", f.token);
+  await page.w.fetchEsimData();
+  return { ...page, f };
+}
+
+test("backup export requires a loaded snapshot but allows a known empty list", async (t) => {
+  const { w, d } = await browser(t);
+  w.eval(assets["/crypto-js.js"].body);
+  w.sessionStorage.setItem("esim_auth_token", "local");
+  const fetch = w.fetch;
+  w.fetch = async (url, options) =>
+    url === "/api/esims"
+      ? Response.json({ message: "offline" }, { status: 503 })
+      : fetch(url, options);
+  await w.fetchEsimData();
+
+  const downloads = [];
+  w.Blob = Blob;
+  w.HTMLAnchorElement.prototype.click = () => {};
+  w.URL.createObjectURL = (blob) => {
+    downloads.push(blob);
+    return "blob:https://panel.invalid/backup";
+  };
+  w.URL.revokeObjectURL = () => {};
+
+  function exportBackup() {
+    w.openExportModal();
+    if (!d.getElementById("exportModal").classList.contains("hidden")) {
+      d.getElementById("exportPassword").value = "fixture-password";
+      w.exportData();
+    }
+  }
+
+  exportBackup();
+  assert.equal(downloads.length, 0);
+  w.fetch = fetch;
+  await w.fetchEsimData();
+  exportBackup();
+  assert.equal(downloads.length, 1);
+  const { data } = JSON.parse(await downloads[0].text());
+  const decrypted = w.CryptoJS.AES.decrypt(data, "fixture-password").toString(
+    w.CryptoJS.enc.Utf8,
+  );
+  assert.deepEqual(JSON.parse(decrypted), []);
+});
+
+test("closing a slow import cancels it even after reopening with a newer snapshot", async (t) => {
+  const { w, d, f } = await browserWithCards(t);
+  w.eval(assets["/crypto-js.js"].body);
+  w.openImportModal();
+  const reading = Promise.withResolvers();
+  t.after(() => reading.resolve(""));
+  Object.defineProperty(d.getElementById("importFile"), "files", {
+    configurable: true,
+    value: [{ size: 1000, text: () => reading.promise }],
+  });
+  d.getElementById("importPassword").value = "fixture-password";
+  d.querySelector('[name="importMode"][value="merge"]').checked = true;
+  const importing = w.importData();
+  d.dispatchEvent(new w.KeyboardEvent("keydown", { key: "Escape" }));
+  assert(d.getElementById("importModal").classList.contains("hidden"));
+
+  const edited = await f.request("/api/esims", "PUT", {
+    id: "one",
+    name: "Newer edit",
+  });
+  assert.equal(edited.status, 200);
+  await w.fetchEsimData();
+  w.openImportModal();
+
+  const data = w.CryptoJS.AES.encrypt(
+    JSON.stringify([{ ...sample, name: "From old backup" }]),
+    "fixture-password",
+  ).toString();
+  reading.resolve(JSON.stringify({ version: "1.0", encrypted: true, data }));
+  await importing;
+  assert.equal(f.store.cards()[0].name, "Newer edit");
+  assert(!d.getElementById("importModal").classList.contains("hidden"));
+  assert.equal(d.getElementById("importBtn").disabled, false);
+});
+
+function queueSearchWithoutApplying(w, search, value) {
+  search.value = value;
+  const setTimeout = w.setTimeout;
+  w.setTimeout = () => 1;
+  try {
+    search.dispatchEvent(new w.Event("input", { bubbles: true }));
+  } finally {
+    w.setTimeout = setTimeout;
+  }
+}
+
+const alphaBetaCards = [
+  { ...sample, id: "a", name: "Alpha" },
+  { ...sample, id: "b", name: "Beta" },
+];
+
+test("batch delete keeps the rendered selection while search input is debounced", async (t) => {
+  const { w, d, f } = await browserWithCards(t, alphaBetaCards);
+  w.toggleBatchMode();
+  d.querySelector('[data-select-id="b"]').click();
+  const search = d.getElementById("searchInput");
+  search.value = "alpha";
+  w.filterAndRender();
+  d.querySelector('[data-select-id="a"]').click();
+  queueSearchWithoutApplying(w, search, "beta");
+  assert(d.querySelector('[data-select-id="a"]').checked);
+  assert.equal(d.querySelector('[data-select-id="b"]'), null);
+  assert.equal(d.getElementById("selectedCount").textContent, "1");
+
+  await w.batchDelete();
+  assert.deepEqual(f.store.cards().map((card) => card.id), ["b"]);
+});
+
+test("select all during a pending search changes only the rendered checkboxes", async (t) => {
+  const { w, d } = await browserWithCards(t, alphaBetaCards);
+  w.toggleBatchMode();
+  const search = d.getElementById("searchInput");
+  search.value = "alpha";
+  w.filterAndRender();
+  queueSearchWithoutApplying(w, search, "beta");
+
+  w.toggleSelectAll(true);
+  assert(d.querySelector('[data-select-id="a"]').checked);
+  w.filterAndRender();
+  assert.equal(d.querySelector('[data-select-id="b"]').checked, false);
+  search.value = "alpha";
+  w.filterAndRender();
+  assert(d.querySelector('[data-select-id="a"]').checked);
+});
+
+test("undo cannot remove a renewal that was not shown in the open history dialog", async (t) => {
+  const { w, d, f } = await browserWithCards(t);
+  const renew = () =>
+    f.request("/api/esims", "PUT", { id: "one", renewMode: "fromExpiry" });
+  assert.equal((await renew()).status, 200);
+  await w.fetchEsimData();
+
+  const loading = Promise.withResolvers();
+  t.after(() => loading.resolve());
+  const fetch = w.fetch;
+  w.fetch = async (url, options) => {
+    if (url === "/api/esims" && !options.method) await loading.promise;
+    return fetch(url, options);
+  };
+  const refresh = w.fetchEsimData();
+  w.openRenewalHistory("one");
+  assert.equal((await renew()).status, 200);
+  loading.resolve();
+  await refresh;
+  const history = d.getElementById("renewalHistoryList");
+  assert.match(history.textContent, /2026-03-01/);
+  assert.doesNotMatch(history.textContent, /2026-04-01/);
+
+  await w.undoLastRenewal("one");
+  const [unchanged] = f.store.cards();
+  assert.equal(unchanged.expireDate, "2026-04-01");
+  assert.equal(unchanged.renewalHistory.length, 2);
+
+  w.closeRenewalHistoryModal();
+  w.openRenewalHistory("one");
+  await w.undoLastRenewal("one");
+  const [undone] = f.store.cards();
+  assert.equal(undone.expireDate, "2026-03-01");
+  assert.equal(undone.renewalHistory.length, 1);
+});
+
+test("renaming a legacy card preserves its missing start date", async (t) => {
+  const { w, d, f } = await browserWithCards(t, [{ ...sample, startDate: null }]);
+  w.openEditModal("one");
+  const start = d.getElementById("simStartDate");
+  const form = d.getElementById("addForm");
+  const original = { value: start.value, required: start.required };
+  d.getElementById("simName").value = "Rename only";
+  assert(form.checkValidity());
+  await w.submitForm(new w.Event("submit", { cancelable: true }));
+  const [card] = f.store.cards();
+  assert.equal(card.name, "Rename only");
+  assert.equal(card.startDate, null);
+  assert.deepEqual(original, { value: "", required: false });
+
+  w.openModal();
+  assert.equal(start.required, true);
+  assert.equal(start.value, todayString());
 });

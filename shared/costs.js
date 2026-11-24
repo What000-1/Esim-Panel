@@ -55,12 +55,10 @@ export function summarizeCosts(cards, { getCycleDays, rates = {} } = {}) {
       }
     }
     for (const rec of sim.renewalHistory || []) {
-      if (rec.cost > 0) {
-        const cur = (
-          rec.currency ||
-          sim.renewCurrency ||
-          "未知币种"
-        ).toUpperCase();
+      // Older versions recorded the configured price for auto-renewals.
+      if (rec.source !== "auto" && rec.cost > 0) {
+        // Don't infer past payment currencies from the card's current default.
+        const cur = (rec.currency || "未知币种").toUpperCase();
         spent.set(cur, (spent.get(cur) || 0) + rec.cost);
       }
     }

@@ -538,7 +538,10 @@
             />
           </div>
           <div class="mb-4">
-            <label class="block text-gray-700 text-sm font-bold mb-2"
+            <label
+              id="simStartDateLabel"
+              for="simStartDate"
+              class="block text-gray-700 text-sm font-bold mb-2"
               >开始日期 (必填)</label
             >
             <input
@@ -551,7 +554,9 @@
               class="w-full px-4 py-2 rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white/80"
               onchange="autoCalcExpireDate(event)"
             />
-            <p class="text-xs text-gray-400 mt-1">默认为今天，可自行修改</p>
+            <p id="simStartDateHint" class="text-xs text-gray-400 mt-1">
+              默认为今天，可自行修改
+            </p>
           </div>
           <div class="mb-4" id="simCycleGroup">
             <label class="block text-gray-700 text-sm font-bold mb-2"

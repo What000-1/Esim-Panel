@@ -28,6 +28,8 @@ import {
 const json = (value, status = 200, headers = {}) =>
   Response.json(value, { status, headers });
 const now = () => Date.now();
+const CARD_VERSION_PREFIX = "card-version:";
+const LEGACY_CARD_VERSION = "0";
 const revisionHeaders = (revision) => ({
   ETag: `"${revision}"`,
   "X-Data-Revision": String(revision),
@@ -98,10 +100,35 @@ export class EsimStore {
   revision() {
     return this.get("revision") || 0;
   }
-  saveCards(cards) {
-    for (const row of this.list("card:")) this.delete(row.key);
-    cards.forEach((card) => this.put("card:" + card.id, card));
-    this.put("revision", this.revision() + 1);
+  cardVersion(id) {
+    return this.get(CARD_VERSION_PREFIX + id) ?? LEGACY_CARD_VERSION;
+  }
+  saveCards(cards, renewalChanges = new Set()) {
+    const revision = this.revision() + 1;
+    const version = revision.toString(36);
+    const previous = new Map(
+      this.list("card:").map(({ key, value }) => [key, value]),
+    );
+    for (const key of previous.keys()) this.delete(key);
+    for (const card of cards) {
+      const key = "card:" + card.id;
+      const old = previous.get(key);
+      previous.delete(key);
+      // Expiry alone is not a version: renewing from today can keep the
+      // same date, and undoing a renewal can bring an old date back.
+      if (
+        !old ||
+        old.expireDate !== card.expireDate ||
+        !!old.archived !== card.archived ||
+        !!old.noRenewal !== card.noRenewal ||
+        renewalChanges.has(card.id)
+      )
+        this.put(CARD_VERSION_PREFIX + card.id, version);
+      this.put(key, card);
+    }
+    for (const key of previous.keys())
+      this.delete(CARD_VERSION_PREFIX + key.slice("card:".length));
+    this.put("revision", revision);
   }
   async migrate() {
     // A failed read must not mark an empty migration complete. Retain original KV.
@@ -190,18 +217,25 @@ export class EsimStore {
         const failed = this.list("notice:").filter(
           (row) => row.value.status === "failed",
         );
-        if (failed.length) await this.ctx.storage.setAlarm(now() + 1100);
+        const retryable = new Set(
+          failed.filter((row) => this.noticeIsCurrent(row)).map((row) => row.key),
+        );
+        if (retryable.size) await this.ctx.storage.setAlarm(now() + 1100);
         this.transaction(() => {
-          failed.forEach((row) =>
+          for (const row of failed) {
+            if (!retryable.has(row.key)) {
+              this.delete(row.key);
+              continue;
+            }
             this.put(row.key, {
               ...row.value,
               status: "pending",
               attempts: 0,
               nextAt: now(),
-            }),
-          );
+            });
+          }
         });
-        return json({ success: true, count: failed.length });
+        return json({ success: true, count: retryable.size });
       }
       if (path === "/api/esims/quarantine" && request.method === "GET")
         return json(this.list("quarantine:").map((row) => row.value));
@@ -289,6 +323,7 @@ export class EsimStore {
       }
       const body = await readJSON(request);
       let cards = this.cards();
+      const renewalChanges = new Set();
       if (path === "/api/esims/import") {
         if (
           request.method !== "POST" ||
@@ -296,6 +331,7 @@ export class EsimStore {
         )
           throw new HttpError(400, "导入模式无效");
         const incoming = validateList(body.data, { legacy: true });
+        for (const card of incoming) renewalChanges.add(card.id);
         if (body.mode === "overwrite") cards = incoming;
         else {
           const map = new Map(cards.map((card) => [card.id, card]));
@@ -317,13 +353,11 @@ export class EsimStore {
         cards =
           request.method === "DELETE"
             ? cards.filter((card) => !ids.has(card.id))
-            : cards.map((card) =>
-                ids.has(card.id)
-                  ? card.noRenewal
-                    ? card
-                    : this.renew(card, body.renewMode, "batch")
-                  : card,
-              );
+            : cards.map((card) => {
+                if (!ids.has(card.id) || card.noRenewal) return card;
+                renewalChanges.add(card.id);
+                return this.renew(card, body.renewMode, "batch");
+              });
       } else if (request.method === "POST") {
         if (!body.startDate) throw new HttpError(400, "请选择开始日期");
         cards.push(
@@ -339,9 +373,11 @@ export class EsimStore {
         const index = cards.findIndex((card) => card.id === id);
         if (index < 0) throw new HttpError(404, "未找到记录");
         if (request.method === "DELETE") cards.splice(index, 1);
-        else if (body.undoRenew === true)
+        else if (body.undoRenew === true) {
+          renewalChanges.add(id);
           cards[index] = this.undoRenew(cards[index]);
-        else if (body.renewMode !== undefined) {
+        } else if (body.renewMode !== undefined) {
+          renewalChanges.add(id);
           const costOverride =
             body.renewCost !== undefined
               ? { cost: body.renewCost, currency: body.renewCurrency }
@@ -362,7 +398,7 @@ export class EsimStore {
           });
       }
       cards = validateList(cards);
-      this.transaction(() => this.saveCards(cards));
+      this.transaction(() => this.saveCards(cards, renewalChanges));
       return json(
         { success: true, revision: this.revision() },
         200,
@@ -388,10 +424,13 @@ export class EsimStore {
       throw new HttpError(400, "续期来源无效");
     const base = mode === "fromExpiry" ? card.expireDate : todayString();
     const newExpireDate = addCalendarCycle(base, card.cycle, card.cycleUnit);
+    // Auto-renew only changes the date on the dashboard; it does not pay.
     const cost =
-      costOverride && costOverride.cost !== undefined
-        ? costOverride.cost
-        : card.renewCost;
+      source === "auto"
+        ? null
+        : costOverride?.cost !== undefined
+          ? costOverride.cost
+          : card.renewCost;
     const currency =
       costOverride && costOverride.currency !== undefined
         ? costOverride.currency
@@ -404,7 +443,7 @@ export class EsimStore {
       newExpireDate,
       cycle: card.cycle,
       cycleUnit: card.cycleUnit,
-      ...(card.startDate ? { previousStartDate: card.startDate } : {}),
+      previousStartDate: card.startDate ?? null,
       ...(cost != null ? { cost } : {}),
       ...(cost != null && currency ? { currency } : {}),
     };
@@ -578,8 +617,14 @@ export class EsimStore {
       else if (!parsedAction) nextReply = "按钮已失效";
       else if (!card) nextReply = "卡片不存在或已删除";
       else if (card.noRenewal) nextReply = "该卡无需保号";
-      else if (card.expireDate !== parsedAction.expireDate)
-        nextReply = `该卡已续期，当前到期日 ${card.expireDate}，未重复操作`;
+      else if (card.archived) nextReply = "该卡已归档，按钮已失效";
+      else if (
+        parsedAction.version !== undefined
+          ? parsedAction.version !== this.cardVersion(card.id)
+          : this.cardVersion(card.id) !== LEGACY_CARD_VERSION ||
+            card.expireDate !== parsedAction.expireDate
+      )
+        nextReply = `该卡状态已变更，当前到期日 ${card.expireDate}，未重复操作`;
       else {
         try {
           nextRenewed = this.renew(card, parsedAction.mode, "telegram");
@@ -592,7 +637,9 @@ export class EsimStore {
           const cards = this.cards().map((item) =>
             item.id === nextRenewed.id ? nextRenewed : item,
           );
-          this.transaction(() => this.saveCards(cards));
+          this.transaction(() =>
+            this.saveCards(cards, new Set([nextRenewed.id])),
+          );
           nextReply = `已续期，新到期日 ${nextRenewed.expireDate}`;
         }
       }
@@ -635,10 +682,21 @@ export class EsimStore {
     const today = todayString();
     const state = await this.serial(() => {
       if (!this.get("telegram:webhook")) return null;
-      return { cards: this.cards(), rates: this.exchangeRates() };
+      return {
+        cards: this.cards(),
+        rates: this.exchangeRates(),
+        versions: new Map(
+          this.list(CARD_VERSION_PREFIX).map(({ key, value }) => [key, value]),
+        ),
+      };
     });
     if (!state) return;
     const snapshot = state.cards;
+    const buttonsFor = (card) =>
+      renewButtons(
+        card.id,
+        state.versions.get(CARD_VERSION_PREFIX + card.id) ?? LEGACY_CARD_VERSION,
+      );
     const send = (text, extra = {}) =>
       sendTelegram(this.env, text, extra).catch((e) =>
         console.error("Telegram command reply failed", cmd, e.message),
@@ -725,7 +783,7 @@ export class EsimStore {
       }
       if (due.length <= 5) {
         for (const card of due) {
-          const markup = renewButtons(card.id, card.expireDate);
+          const markup = buttonsFor(card);
           await send(
             this.formatTelegramCard(card, today),
             markup ? { reply_markup: markup } : {},
@@ -767,8 +825,7 @@ export class EsimStore {
       }
       if (matches.length <= 3) {
         for (const card of matches) {
-          const markup =
-            !card.noRenewal && renewButtons(card.id, card.expireDate);
+          const markup = !card.noRenewal && buttonsFor(card);
           await send(
             this.formatTelegramCard(card, today),
             markup ? { reply_markup: markup } : {},
@@ -896,6 +953,7 @@ export class EsimStore {
     const validCards = [];
     const notices = [];
     const bad = [];
+    const renewalChanges = new Set();
     let changed = false;
     for (const [index, raw] of cards.entries()) {
       try {
@@ -924,6 +982,7 @@ export class EsimStore {
             [7, 3, 1].includes(days));
         if (renewed) {
           validCards[validCards.length - 1] = renewed;
+          renewalChanges.add(card.id);
           changed = true;
           if (!card.muteReminders)
             message = `🔄 看板自动延期\n${detail}新到期日：${renewed.expireDate}\n请确认已完成实际保号操作（短信、充值等）。`;
@@ -940,8 +999,10 @@ export class EsimStore {
         if (message)
           notices.push({
             key: noticeKey,
+            cardId: card.id,
             value: {
               text: message,
+              expireDate: (renewed ?? card).expireDate,
               status: "pending",
               attempts: 0,
               nextAt: now(),
@@ -961,9 +1022,10 @@ export class EsimStore {
     }
     if (notices.length) await this.ctx.storage.setAlarm(now() + 1100);
     this.transaction(() => {
-      if (changed) this.saveCards(validCards);
+      if (changed) this.saveCards(validCards, renewalChanges);
       bad.forEach((row) => this.put("quarantine:" + crypto.randomUUID(), row));
-      notices.forEach((row) => this.put(row.key, row.value));
+      for (const { key, cardId, value } of notices)
+        this.put(key, { ...value, cardVersion: this.cardVersion(cardId) });
       // Failed notices are kept for retry, but not forever.
       for (const row of this.list("notice:"))
         if (
@@ -975,13 +1037,31 @@ export class EsimStore {
     // Persist an alarm before outbound I/O; dates and pending notices commit together.
     await this.arm();
   }
+  noticeIsCurrent({ key, value }) {
+    const [, date, cardId] =
+      /^notice:(\d{4}-\d{2}-\d{2}):(.+)$/.exec(key) ?? [];
+    if (!cardId) return true;
+    // Regular reminders describe a specific Beijing day. Only the absolute
+    // auto-renewal outcomes can be retried across days. Untyped legacy notices
+    // are treated as regular reminders.
+    const timed = value.renew != null || value.expireDate == null;
+    if (timed && date !== todayString()) return false;
+    const card = this.get("card:" + cardId);
+    const expireDate = value.expireDate ?? value.renew?.expireDate;
+    return (
+      !!card &&
+      !card.archived &&
+      !card.noRenewal &&
+      !card.muteReminders &&
+      (value.cardVersion ?? LEGACY_CARD_VERSION) === this.cardVersion(cardId) &&
+      (expireDate == null || card.expireDate === expireDate)
+    );
+  }
   // Buttons are decided at send time: only with the webhook on and the card unrenewed.
   renewMarkup(notice) {
     if (!notice.renew || !this.get("telegram:webhook")) return {};
-    const card = this.get("card:" + notice.renew.cardId);
-    if (!card || card.noRenewal || card.expireDate !== notice.renew.expireDate)
-      return {};
-    const markup = renewButtons(card.id, card.expireDate);
+    const { cardId } = notice.renew;
+    const markup = renewButtons(cardId, this.cardVersion(cardId));
     return markup ? { reply_markup: markup } : {};
   }
   async arm() {
@@ -1010,9 +1090,7 @@ export class EsimStore {
           await this.arm();
           return null;
         }
-        // Scheduled keys are notice:<date>:<cardId>; drop reminders for deleted cards.
-        const cardId = /^notice:\d{4}-\d{2}-\d{2}:(.+)$/.exec(item.key)?.[1];
-        if (cardId && !this.get("card:" + cardId)) {
+        if (!this.noticeIsCurrent(item)) {
           this.delete(item.key);
           continue;
         }
@@ -1025,6 +1103,12 @@ export class EsimStore {
       notice.nextAt = now() + 60000;
       this.put(item.key, notice);
       await this.arm();
+      // Scheduling the next alarm may have crossed the Beijing day boundary.
+      if (!this.noticeIsCurrent(item)) {
+        this.delete(item.key);
+        await this.arm();
+        return null;
+      }
       return {
         key: item.key,
         text: chunks[notice.part],

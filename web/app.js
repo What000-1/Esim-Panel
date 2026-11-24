@@ -6,7 +6,7 @@ let fetchGeneration = 0;
 let sessionGeneration = 0;
 let mutationBusy = false;
 let editingRevision = null;
-let importRevision = null;
+let importTarget = null;
 let countdownInterval;
 let editingId = null;
 let batchMode = false;
@@ -15,8 +15,10 @@ let currentSort = { key: "remainDays", asc: true };
 let searchTimer = null;
 const cardRenderCache = new Map();
 let renewTarget = null; // { id, cycle, cycleUnit, expireDate, name } 或 { isBatch: true, cards, ids, visibleIds, revision }
+let renewalHistoryTarget = null;
 const SEND_CODE_LABEL =
   '<i class="fa-brands fa-telegram text-xl mr-2"></i> 向 TG 机器人获取验证码';
+const IMPORT_BUTTON_LABEL = document.getElementById("importBtn").innerHTML;
 let formNoRenewal = false; // 表单当前是否按“无需保号”处理（与界面显示保持一致）
 let telegramButtonsEnabled = false; // 服务端是否已为提醒消息启用续期按钮
 let statusFilter = "all"; // all | safe | warning | danger | noRenewal | archived
@@ -184,6 +186,8 @@ async function logout(revoke = true) {
   batchMode = false;
   editingId = null;
   renewTarget = null;
+  renewalHistoryTarget = null;
+  importTarget = null;
   clearInterval(countdownInterval);
   document.getElementById("login-container").classList.remove("hidden");
   document.getElementById("main-container").classList.add("hidden");
@@ -277,7 +281,7 @@ function setTagFilter(tag) {
   filterAndRender();
 }
 
-// 当前搜索与筛选条件下可见的卡片；渲染、全选和批量操作共用同一结果
+// 根据当前搜索与筛选条件，计算下一次渲染的卡片。
 function filteredEsims() {
   const query = (document.getElementById("searchInput").value || "")
     .trim()
@@ -318,9 +322,18 @@ function filteredEsims() {
   });
 }
 
-// Selections survive filtering, but batch actions only touch what is shown.
+function renderedCardBoxes() {
+  return [...document.querySelectorAll("#esim-container .card-select-input")];
+}
+
+// Search input can change before the debounced render. Use what is on screen.
 function visibleSelectedEsims() {
-  return filteredEsims().filter((sim) => selectedIds.has(sim.id));
+  const ids = new Set(
+    renderedCardBoxes()
+      .filter((box) => box.checked)
+      .map((box) => box.dataset.selectId),
+  );
+  return esimData.filter((sim) => ids.has(sim.id));
 }
 
 function filterAndRender() {
@@ -406,21 +419,17 @@ function toggleCardSelection(id, checkbox) {
 
 function toggleSelectAll(checked) {
   // 只增删当前显示的卡片，被搜索隐藏的选择保持不变
-  for (const sim of filteredEsims()) {
-    if (checked) selectedIds.add(sim.id);
-    else selectedIds.delete(sim.id);
+  for (const box of renderedCardBoxes()) {
+    if (checked) selectedIds.add(box.dataset.selectId);
+    else selectedIds.delete(box.dataset.selectId);
+    box.checked = checked;
+    box.closest(".glass-card")?.classList.toggle("card-selected", checked);
   }
-  // 更新所有复选框
-  document.querySelectorAll(".card-select-input").forEach((cb) => {
-    cb.checked = checked;
-    const card = cb.closest(".glass-card");
-    if (card) card.classList.toggle("card-selected", checked);
-  });
   updateSelectedCount();
 }
 
 function updateSelectedCount() {
-  const boxes = [...document.querySelectorAll(".card-select-input")];
+  const boxes = renderedCardBoxes();
   const selected = boxes.filter((cb) => cb.checked).length;
   // 计数与批量操作范围一致：只统计当前可见的已选卡片
   document.getElementById("selectedCount").textContent = selected;
@@ -650,8 +659,8 @@ function renderCards(esims) {
   sorted.forEach((sim) => {
     const noRenewal = sim.noRenewal === true;
     const archived = sim.archived === true;
-    const diffDays =
-      noRenewal || archived ? Infinity : daysBetween(today, sim.expireDate);
+    const trackExpiry = !noRenewal && !archived;
+    const diffDays = trackExpiry ? daysBetween(today, sim.expireDate) : 0;
     const reminderDays = sim.reminderDays ?? 15;
 
     let statusColor = "bg-green-500";
@@ -684,9 +693,9 @@ function renderCards(esims) {
       icon = "fa-bell text-yellow-500";
     }
 
-    let percent = noRenewal
-      ? 100
-      : Math.min(Math.max((diffDays / cycleDays(sim)) * 100, 0), 100);
+    const percent = trackExpiry
+      ? Math.min(Math.max((diffDays / cycleDays(sim)) * 100, 0), 100)
+      : 0;
     const flagEmoji = getCountryFlag(sim.number);
 
     // 渲染备注区域
@@ -758,9 +767,11 @@ function renderCards(esims) {
 
     const timingHTML = noRenewal
       ? '<p class="text-sm font-semibold text-emerald-700">无需设置保号期限</p>'
-      : `<div class="flex justify-between text-sm font-semibold mb-2">
+      : archived
+        ? `<p class="text-xs text-gray-500 font-medium">到期日: ${escapeHTML(sim.expireDate)}</p>`
+        : `<div class="flex justify-between text-sm font-semibold mb-2">
                         <span class="text-gray-700">剩余时间</span>
-                        <span class="text-gray-900 font-bold ${!archived && diffDays <= reminderDays && diffDays > 0 ? "text-red-600" : ""}">${diffDays < 0 ? "0" : diffDays} 天</span>
+                        <span class="text-gray-900 font-bold ${diffDays <= reminderDays && diffDays > 0 ? "text-red-600" : ""}">${diffDays < 0 ? "0" : diffDays} 天</span>
                     </div>
                     <div class="w-full bg-gray-200/60 rounded-full h-3 mb-2 shadow-inner">
                         <div class="${statusColor} h-3 rounded-full shadow-sm transition-all duration-1000" style="width: ${percent}%"></div>
@@ -883,7 +894,7 @@ async function submitForm(e) {
     renewCost: renewCostRaw === "" ? null : Number(renewCostRaw),
     renewCurrency: document.getElementById("simRenewCurrency").value.trim(),
     tags,
-    startDate: document.getElementById("simStartDate").value,
+    startDate: document.getElementById("simStartDate").value || null,
     expireDate: document.getElementById("simExpire").value || null,
     cycle:
       document.getElementById("simCycle").value === ""
@@ -999,22 +1010,24 @@ function closeRenewModal() {
 }
 
 async function confirmRenew() {
-  if (!renewTarget) return;
+  const target = renewTarget;
+  if (!target) return;
+  const generation = sessionGeneration;
   const mode = document.querySelector('input[name="renewMode"]:checked').value;
   const btn = document.getElementById("confirmRenewBtn");
+  if (btn.disabled) return;
   btn.disabled = true;
   try {
-    if (renewTarget.isBatch) {
+    if (target.isBatch) {
       await mutate(
         WORKER_API_URL + "/batch",
         "PUT",
         {
-          ids: renewTarget.ids,
+          ids: target.ids,
           renewMode: mode,
         },
-        renewTarget.revision,
+        target.revision,
       );
-      renewTarget.visibleIds.forEach((id) => selectedIds.delete(id));
     } else {
       const costRaw = document.getElementById("renewCostInput").value;
       const currency = document
@@ -1024,19 +1037,21 @@ async function confirmRenew() {
         WORKER_API_URL,
         "PUT",
         {
-          id: renewTarget.id,
+          id: target.id,
           renewMode: mode,
-          ...(costRaw !== "" || renewTarget.renewCost != null
+          ...(costRaw !== "" || target.renewCost != null
             ? {
                 renewCost: costRaw === "" ? null : Number(costRaw),
                 renewCurrency: currency,
               }
             : {}),
         },
-        renewTarget.revision,
+        target.revision,
       );
     }
-    closeRenewModal();
+    if (generation !== sessionGeneration) return;
+    if (target.isBatch) target.visibleIds.forEach((id) => selectedIds.delete(id));
+    if (renewTarget === target) closeRenewModal();
     await fetchEsimData();
   } catch (e) {
     alert(e.message);
@@ -1062,6 +1077,7 @@ function formatRenewalTimestamp(value) {
 function openRenewalHistory(id) {
   const sim = esimData.find((item) => item.id === id);
   if (!sim) return;
+  renewalHistoryTarget = { id, revision: dataRevision };
   const history = Array.isArray(sim.renewalHistory)
     ? [...sim.renewalHistory].reverse()
     : [];
@@ -1097,7 +1113,7 @@ function openRenewalHistory(id) {
                   <i class="fa-solid fa-arrow-right text-violet-400"></i>
                   <span class="text-violet-700">${escapeHTML(record.newExpireDate)}</span>
                 </div>
-                <p class="mt-2 text-xs text-gray-500">${escapeHTML(modeLabels[record.mode] || record.mode)} · 周期 ${escapeHTML(record.cycle)} ${escapeHTML(getCycleUnitLabel(record.cycleUnit))}${record.cost != null ? ` · 花费 ${escapeHTML(record.cost)}${record.currency ? " " + escapeHTML(record.currency) : ""}` : ""}</p>
+                <p class="mt-2 text-xs text-gray-500">${escapeHTML(modeLabels[record.mode] || record.mode)} · 周期 ${escapeHTML(record.cycle)} ${escapeHTML(getCycleUnitLabel(record.cycleUnit))}${record.source !== "auto" && record.cost != null ? ` · 花费 ${escapeHTML(record.cost)}${record.currency ? " " + escapeHTML(record.currency) : ""}` : ""}</p>
                 ${
                   index === 0 &&
                   !sim.noRenewal &&
@@ -1118,17 +1134,24 @@ function openRenewalHistory(id) {
 }
 
 async function undoLastRenewal(id) {
+  const target = renewalHistoryTarget;
+  if (!target || target.id !== id) return;
+  if (target.revision !== dataRevision)
+    return alert("续期记录已更新，请关闭后重新打开。");
   if (!confirm("确定撤销最近一次续期并恢复原到期日？")) return;
+  const generation = sessionGeneration;
   try {
-    await mutate(WORKER_API_URL, "PUT", { id, undoRenew: true });
-    closeRenewalHistoryModal();
+    await mutate(WORKER_API_URL, "PUT", { id, undoRenew: true }, target.revision);
+    if (generation !== sessionGeneration) return;
+    if (renewalHistoryTarget === target) closeRenewalHistoryModal();
     await fetchEsimData();
   } catch (e) {
-    alert(e.message);
+    if (renewalHistoryTarget === target) alert(e.message);
   }
 }
 
 function closeRenewalHistoryModal() {
+  renewalHistoryTarget = null;
   hideDialog("renewalHistoryModal");
 }
 async function deleteEsim(id) {
@@ -1169,7 +1192,13 @@ function autoCalcExpireDate(trigger) {
   if (formNoRenewal) return;
   const cycle = Number(document.getElementById("simCycle").value);
   const unit = document.getElementById("simCycleUnit").value;
-  const start = document.getElementById("simStartDate").value;
+  const startInput = document.getElementById("simStartDate");
+  const start = startInput.value;
+  if (!start && !startInput.required) {
+    document.getElementById("expireHint").textContent =
+      "未填写开始日期，请手动核对或修改到期日。";
+    return;
+  }
   const preset = selectedPhoneCard();
   const cycleWasEdited = ["simCycle", "simCycleUnit"].includes(
     trigger?.target?.id,
@@ -1311,6 +1340,20 @@ function getTodayStr() {
   return todayString();
 }
 
+function setStartDateField(startDate, isNew = false) {
+  const input = document.getElementById("simStartDate");
+  input.required = isNew || !!startDate;
+  input.value = startDate || (isNew ? getTodayStr() : "");
+  document.getElementById("simStartDateLabel").textContent = input.required
+    ? "开始日期 (必填)"
+    : "开始日期 (选填)";
+  document.getElementById("simStartDateHint").textContent = isNew
+    ? "默认为今天，可自行修改"
+    : input.required
+      ? "可自行修改"
+      : "旧记录未填写，可保留空白";
+}
+
 function openModal() {
   editingId = null;
   document.getElementById("modalTitle").innerHTML =
@@ -1320,7 +1363,7 @@ function openModal() {
   populatePhoneCards();
   document.getElementById("simName").dataset.presetBrand = "";
   updatePhoneCardHint();
-  document.getElementById("simStartDate").value = getTodayStr();
+  setStartDateField(null, true);
   document.getElementById("simCycleUnit").value = "day";
   document.getElementById("simAutoRenew").checked = false;
   document.getElementById("simMuteReminders").checked = false;
@@ -1357,8 +1400,7 @@ function openEditModal(id) {
   document.getElementById("simBalance").value = sim.balance || "";
   document.getElementById("simRenewCost").value = sim.renewCost ?? "";
   document.getElementById("simRenewCurrency").value = sim.renewCurrency || "";
-  document.getElementById("simStartDate").value =
-    sim.startDate || getTodayStr();
+  setStartDateField(sim.startDate);
   document.getElementById("simCycle").value = sim.cycle ?? "";
   document.getElementById("simCycleUnit").value = sim.cycleUnit || "day";
   document.getElementById("simRemark").value = sim.remark || "";
@@ -1390,8 +1432,17 @@ function closeExportModal() {
   document.getElementById("exportPassword").value = "";
 }
 
+function setImportBusy(busy) {
+  const btn = document.getElementById("importBtn");
+  btn.disabled = busy;
+  btn.innerHTML = busy
+    ? '<i class="fa-solid fa-spinner fa-spin mr-2"></i>导入中...'
+    : IMPORT_BUTTON_LABEL;
+}
+
 function openImportModal() {
-  importRevision = dataRevision;
+  importTarget = { revision: dataRevision };
+  setImportBusy(false);
   document.getElementById("importFile").value = "";
   document.getElementById("importPassword").value = "";
   toggleBackupMenu(false);
@@ -1399,12 +1450,15 @@ function openImportModal() {
 }
 
 function closeImportModal() {
+  importTarget = null;
+  setImportBusy(false);
   hideDialog("importModal");
   document.getElementById("importPassword").value = "";
   document.getElementById("importFile").value = "";
 }
 
 function exportData() {
+  if (!dataRevision) return alert("请先成功加载卡片列表，再导出备份。");
   const pwd = document.getElementById("exportPassword").value;
   if (!pwd) return alert("请输入加密密码！");
 
@@ -1449,6 +1503,10 @@ function exportData() {
 }
 
 async function importData() {
+  const target = importTarget;
+  if (!target || document.getElementById("importBtn").disabled) return;
+  if (!target.revision) return alert("请先成功加载卡片列表，再导入备份。");
+  const generation = sessionGeneration;
   const fileInput = document.getElementById("importFile");
   const pwd = document.getElementById("importPassword").value;
   const mode = document.querySelector('input[name="importMode"]:checked').value;
@@ -1457,15 +1515,14 @@ async function importData() {
     return alert("请选择备份文件！");
   if (!pwd) return alert("请输入解密密码！");
 
-  const btn = document.getElementById("importBtn");
-  const originalHtml = btn.innerHTML;
-  btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin mr-2"></i>导入中...';
-  btn.disabled = true;
+  setImportBusy(true);
 
   try {
     const file = fileInput.files[0];
     if (file.size > 12 * 1024 * 1024) throw new Error("备份文件超过 12 MB");
     const text = await file.text();
+    // A closed or replaced dialog cannot submit its pending file.
+    if (importTarget !== target) return;
 
     let importObj;
     try {
@@ -1511,18 +1568,22 @@ async function importData() {
         mode,
         data: parsed,
       },
-      importRevision,
+      target.revision,
     );
 
-    alert("导入成功！");
-    closeImportModal();
+    if (generation !== sessionGeneration) return;
+    if (importTarget === target) {
+      alert("导入成功！");
+      closeImportModal();
+    }
     await fetchEsimData();
   } catch (e) {
-    console.error(e);
-    alert("错误: " + e.message);
+    if (importTarget === target) {
+      console.error(e);
+      alert("错误: " + e.message);
+    }
   } finally {
-    btn.innerHTML = originalHtml;
-    btn.disabled = false;
+    if (importTarget === target) setImportBusy(false);
   }
 }
 

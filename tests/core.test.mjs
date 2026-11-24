@@ -1,6 +1,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { addCalendarCycle, daysBetween, todayString } from "../shared/dates.js";
+import {
+  addCalendarCycle,
+  cycleDays,
+  daysBetween,
+  todayString,
+} from "../shared/dates.js";
+import { summarizeCosts } from "../shared/costs.js";
 import { validateList, validateCard } from "../worker/validation.js";
 import {
   splitMessage,
@@ -248,6 +254,33 @@ test("creation, update and batch all validate and renew using shared calendar ru
   assert.equal(f.store.cards()[0].renewalHistory.length, 2);
 });
 
+test("undo restores a missing start date even after a backup round trip", async (t) => {
+  const f = await fixture([{ ...sample, startDate: null }]);
+  t.after(f.close);
+  const renewed = await f.request("/api/esims", "PUT", {
+    id: sample.id,
+    renewMode: "fromExpiry",
+  });
+  assert.equal(renewed.status, 200);
+  const backup = await (await f.request()).json();
+  assert.equal(backup[0].startDate, sample.expireDate);
+  assert.equal(backup[0].renewalHistory.at(-1).previousStartDate, null);
+  const restored = await f.request("/api/esims/import", "POST", {
+    mode: "overwrite",
+    data: backup,
+  });
+  assert.equal(restored.status, 200);
+  const undone = await f.request("/api/esims", "PUT", {
+    id: sample.id,
+    undoRenew: true,
+  });
+  assert.equal(undone.status, 200);
+  const [card] = f.store.cards();
+  assert.equal(card.startDate, null);
+  assert.equal(card.expireDate, sample.expireDate);
+  assert.deepEqual(card.renewalHistory, []);
+});
+
 test("renewal history keeps only the newest twenty records", async (t) => {
   const f = await fixture([sample]);
   t.after(f.close);
@@ -381,6 +414,33 @@ test("notifications persist with renewal, de-duplicate cron and continue past in
   assert.equal(f.store.list("notice:").length, 10);
   assert(f.store.list("notice:").every((r) => r.value.text.length < 4096));
 });
+
+test("auto renewal never counts as spending, including records made by older versions", async (t) => {
+  const f = await fixture([
+    {
+      ...sample,
+      expireDate: todayString(),
+      autoRenew: true,
+      renewCost: 25,
+      renewCurrency: "CNY",
+      renewalHistory: [
+        { ...renewalRecord, source: "auto", cost: 70, currency: "CNY" },
+        { ...renewalRecord, cost: 5, currency: "CNY" },
+      ],
+    },
+  ]);
+  t.after(f.close);
+  assert.equal((await f.request("/internal/scheduled", "POST")).status, 200);
+  const [card] = f.store.cards();
+  assert.equal(card.renewCost, 25);
+  assert.equal(card.renewalHistory.at(-1).source, "auto");
+  assert.equal(card.renewalHistory.at(-1).cost, undefined);
+  assert.equal(card.renewalHistory.at(-1).currency, undefined);
+  const summary = summarizeCosts([card], { getCycleDays: cycleDays });
+  assert.equal(summary.spent.totalCny, 5);
+  assert(summary.annual.totalCny > 0);
+});
+
 test("notification alarms retry errors, retain failed work and recover after object recreation", async (t) => {
   const f = await fixture();
   t.after(f.close);
@@ -619,6 +679,75 @@ test("reminders for deleted cards are dropped and old failed notices are cleaned
   assert.equal(f.store.get("notice:2026-01-01:one"), null);
 });
 
+test("notification delivery and retry discard stale notices but keep the new auto-renewal result", async (t) => {
+  const today = todayString();
+  const tomorrow = addCalendarCycle(today, 1);
+  const f = await fixture(
+    ["muted", "archived", "renewed", "unneeded", "failed", "valid", "auto"].map(
+      (id) => ({
+        ...sample,
+        id,
+        name: `SIM-${id}`,
+        startDate: today,
+        expireDate: id === "auto" ? today : tomorrow,
+        cycle: 1,
+        cycleUnit: "day",
+        autoRenew: id === "auto",
+      }),
+    ),
+  );
+  t.after(f.close);
+  const originalFetch = globalThis.fetch;
+  t.after(() => {
+    globalThis.fetch = originalFetch;
+  });
+  const messages = [];
+  globalThis.fetch = async (url, options) => {
+    assert.match(String(url), /\/sendMessage$/);
+    messages.push(JSON.parse(options.body));
+    return Response.json({ ok: true });
+  };
+  // An object upgraded in place may still have date-only pending reminders.
+  f.store.delete("card-version:valid");
+  assert.equal((await f.request("/internal/scheduled", "POST")).status, 200);
+  assert.equal(f.store.list("notice:").length, 7);
+  const noticeKey = (id) => `notice:${today}:${id}`;
+  const { cardVersion, expireDate, ...legacyNotice } = f.store.get(
+    noticeKey("valid"),
+  );
+  assert.equal(cardVersion, "0");
+  assert.equal(expireDate, tomorrow);
+  f.store.put(noticeKey("valid"), legacyNotice);
+  const staleFailure = noticeKey("failed");
+  f.store.put(staleFailure, {
+    ...f.store.get(staleFailure),
+    status: "failed",
+    attempts: 5,
+  });
+
+  for (const change of [
+    { id: "muted", muteReminders: true },
+    { id: "archived", archived: true },
+    { id: "renewed", renewMode: "fromToday" },
+    { id: "unneeded", noRenewal: true },
+    { id: "failed", expireDate: addCalendarCycle(today, 30) },
+  ])
+    assert.equal((await f.request("/api/esims", "PUT", change)).status, 200);
+  assert.equal(f.store.get("card:renewed").expireDate, tomorrow);
+
+  const retry = await f.request("/api/esims/notifications/retry", "POST", {});
+  assert.deepEqual(await retry.json(), { success: true, count: 0 });
+  assert.equal(f.store.get(staleFailure), null);
+  await f.store.alarm();
+  await f.store.alarm();
+  assert.equal(messages.length, 2);
+  assert(messages.some(({ text }) => text.includes("SIM-valid")));
+  assert(messages.some(({ text }) => /看板自动延期[\s\S]*SIM-auto/.test(text)));
+  for (const id of ["muted", "archived", "renewed", "unneeded"])
+    assert.equal(f.store.get(noticeKey(id)), null);
+  assert.equal(f.state.alarmAt, null);
+});
+
 test("Telegram renew buttons renew once, only for the configured chat and secret", async (t) => {
   const expireDate = addCalendarCycle(todayString(), 3, "day");
   const f = await fixture([{ ...sample, expireDate }]);
@@ -657,7 +786,7 @@ test("Telegram renew buttons renew once, only for the configured chat and secret
   const [fromExpiry, fromToday] = sent.reply_markup.inline_keyboard[0];
   assert.deepEqual(parseRenewCallback(fromExpiry.callback_data), {
     mode: "fromExpiry",
-    expireDate,
+    version: f.store.cardVersion("one"),
     cardId: "one",
   });
 
@@ -727,12 +856,94 @@ test("Telegram renew buttons renew once, only for the configured chat and secret
     nextAt: 0,
     createdAt: Date.now(),
     part: 0,
+    cardVersion: f.store.cardVersion("one"),
     renew: { cardId: "one", expireDate: renewed.expireDate },
   });
   await f.store.alarm();
   assert.equal(last("sendMessage").body.text, "again");
   assert.equal(last("sendMessage").body.reply_markup, undefined);
   assert.equal(f.state.alarmAt, null);
+});
+
+test("Telegram buttons cannot repeat a renewal with an unchanged expiry or after undo", async (t) => {
+  const today = todayString();
+  const expireDate = addCalendarCycle(today, 1);
+  const one = {
+    ...sample,
+    startDate: today,
+    expireDate,
+    cycle: 1,
+    cycleUnit: "day",
+    renewCost: 5,
+    renewCurrency: "CNY",
+  };
+  const f = await fixture([one, { ...one, id: "legacy", name: "Legacy SIM" }]);
+  t.after(f.close);
+  f.store.delete("card-version:legacy");
+  const originalFetch = globalThis.fetch;
+  t.after(() => {
+    globalThis.fetch = originalFetch;
+  });
+  let secret;
+  const sent = [];
+  const replies = [];
+  globalThis.fetch = async (url, options) => {
+    const method = String(url).split("/").at(-1);
+    const body = JSON.parse(options.body);
+    if (method === "setWebhook") secret = body.secret_token;
+    if (method === "sendMessage") sent.push(body);
+    if (method === "answerCallbackQuery") replies.push(body.text);
+    return Response.json({ ok: true });
+  };
+  const enabled = await f.request("/api/telegram/buttons", "POST", {
+    enabled: true,
+  });
+  assert.equal(enabled.status, 200);
+  const webhook = (payload) =>
+    f.request("/api/telegram/webhook", "POST", payload, {
+      authorization: "",
+      revision: null,
+      "X-Telegram-Bot-Api-Secret-Token": secret,
+    });
+  const chat = { id: "fixture" };
+  const list = await webhook({
+    update_id: 1,
+    message: { message_id: 1, chat, text: "/due" },
+  });
+  assert.equal(list.status, 200);
+  const reminders = sent.find(({ text }) => text.includes(one.name));
+  const [fromExpiry, fromToday] = reminders.reply_markup.inline_keyboard[0];
+  const press = (data, id) =>
+    webhook({
+      update_id: id,
+      callback_query: {
+        id: "q" + id,
+        data,
+        message: { message_id: id, chat, text: reminders.text },
+      },
+    });
+  const revision = f.store.revision();
+  await Promise.all([
+    press(fromToday.callback_data, 2),
+    press(fromToday.callback_data, 3),
+  ]);
+  assert.equal(f.store.get("card:one").expireDate, expireDate);
+  assert.equal(f.store.get("card:one").renewalHistory.length, 1);
+  assert.equal(f.store.revision(), revision + 1);
+  assert.equal(replies.filter((text) => /未重复操作/.test(text)).length, 1);
+
+  const undone = await f.request("/api/esims", "PUT", { id: "one", undoRenew: true });
+  assert.equal(undone.status, 200);
+  await press(fromExpiry.callback_data, 4);
+  assert.match(replies.at(-1), /未重复操作/);
+  assert.equal(f.store.get("card:one").renewalHistory.length, 0);
+
+  const legacy = `rt:${expireDate.replaceAll("-", "")}:legacy`;
+  await press(legacy, 5);
+  assert.match(replies.at(-1), /已续期/);
+  await press(legacy, 6);
+  assert.match(replies.at(-1), /未重复操作/);
+  assert.equal(f.store.get("card:legacy").renewalHistory.length, 1);
 });
 
 test("slow Telegram network requests do not block card reads", async (t) => {
@@ -954,7 +1165,101 @@ test("undo renewal, cost tracking, tags, quarantine clear, milestones, mute/arch
 });
 
 test("renew buttons are omitted when callback data would exceed 64 bytes", () => {
-  assert.equal(renewButtons("x".repeat(80), "2026-01-01"), null);
-  assert(renewButtons("1700000000000", "2026-01-01"));
+  assert.equal(renewButtons("x".repeat(80), "1"), null);
+  assert.equal(renewButtons("x".repeat(59), "1"), null);
+  assert(renewButtons("x".repeat(58), "1"));
+  assert(renewButtons("1700000000000", "1"));
   assert.equal(parseRenewCallback("rx:20260101:one"), null);
+});
+
+test("historical expenses without a currency stay unknown when the card default changes", async (t) => {
+  const f = await fixture([{ ...sample, renewCost: 17, renewCurrency: "USD" }]);
+  t.after(f.close);
+  const paid = await f.request("/api/esims", "PUT", {
+    id: "one",
+    renewMode: "fromExpiry",
+    renewCost: 17,
+    renewCurrency: "",
+  });
+  assert.equal(paid.status, 200);
+  const spent = () =>
+    summarizeCosts(f.store.cards(), { getCycleDays: cycleDays }).spent;
+  const before = spent();
+
+  const edited = await f.request("/api/esims", "PUT", {
+    id: "one",
+    renewCurrency: "EUR",
+  });
+  assert.equal(edited.status, 200);
+  const after = spent();
+  assert.deepEqual(before, after);
+  assert.deepEqual([...after.byCurrency], [["未知币种", 17]]);
+  assert.equal(after.totalCny, null);
+});
+
+test("rollover in Beijing discards timed reminders but delivers absolute auto-renewal results", async (t) => {
+  t.mock.timers.enable({
+    apis: ["Date"],
+    now: new Date("2026-06-01T15:59:00Z"),
+  });
+  const f = await fixture([
+    { ...sample, id: "pending", name: "Pending SIM", expireDate: "2026-06-02" },
+    { ...sample, id: "failed", name: "Failed SIM", expireDate: "2026-06-02" },
+    {
+      ...sample,
+      id: "auto",
+      name: "Auto SIM",
+      expireDate: "2026-06-01",
+      autoRenew: true,
+    },
+  ]);
+  t.after(f.close);
+  const messages = [];
+  t.mock.method(globalThis, "fetch", async (_url, options) => {
+    messages.push(JSON.parse(options.body).text);
+    return Response.json({ ok: true });
+  });
+  assert.equal((await f.request("/internal/scheduled", "POST")).status, 200);
+  const pendingKey = "notice:2026-06-01:pending";
+  const failedKey = "notice:2026-06-01:failed";
+  const autoKey = "notice:2026-06-01:auto";
+  assert.match(f.store.get(pendingKey).text, /剩余 1 天/);
+  f.store.put(failedKey, {
+    ...f.store.get(failedKey),
+    status: "failed",
+    attempts: 5,
+  });
+
+  t.mock.timers.setTime(Date.parse("2026-06-01T16:01:00Z"));
+  const retry = await f.request("/api/esims/notifications/retry", "POST", {});
+  await f.store.alarm();
+  assert.equal(messages.length, 1);
+  assert.match(messages[0], /看板自动延期[\s\S]*Auto SIM/);
+  assert.deepEqual(await retry.json(), { success: true, count: 0 });
+  assert.equal(f.store.get(pendingKey), null);
+  assert.equal(f.store.get(failedKey), null);
+  assert.equal(f.store.get(autoKey).status, "sent");
+});
+
+test("an alarm crossing Beijing midnight before delivery drops the pending countdown", async (t) => {
+  t.mock.timers.enable({
+    apis: ["Date"],
+    now: new Date("2026-06-01T15:59:00Z"),
+  });
+  const f = await fixture([{ ...sample, expireDate: "2026-06-02" }]);
+  t.after(f.close);
+  const outbound = t.mock.method(globalThis, "fetch", async () =>
+    Response.json({ ok: true }),
+  );
+  assert.equal((await f.request("/internal/scheduled", "POST")).status, 200);
+  t.mock.timers.setTime(Date.parse("2026-06-01T15:59:59.999Z"));
+  const setAlarm = f.ctx.storage.setAlarm;
+  t.mock.method(f.ctx.storage, "setAlarm", async (at) => {
+    t.mock.timers.setTime(Date.parse("2026-06-01T16:00:00.001Z"));
+    await setAlarm(at);
+  });
+
+  await f.store.alarm();
+  assert.equal(outbound.mock.callCount(), 0);
+  assert.equal(f.store.get("notice:2026-06-01:one"), null);
 });

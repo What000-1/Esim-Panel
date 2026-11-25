@@ -16,8 +16,10 @@ let searchTimer = null;
 const cardRenderCache = new Map();
 let renewTarget = null; // { id, cycle, cycleUnit, expireDate, name } 或 { isBatch: true, cards, ids, visibleIds, revision }
 let renewalHistoryTarget = null;
+const LOGIN_BUTTON_LABEL =
+  '<i class="fa-solid fa-arrow-right-to-bracket"></i> 登录面板';
 const SEND_CODE_LABEL =
-  '<i class="fa-brands fa-telegram text-xl mr-2"></i> 向 TG 机器人获取验证码';
+  '<i class="fa-brands fa-telegram text-lg"></i> 向 TG 机器人获取验证码';
 const IMPORT_BUTTON_LABEL = document.getElementById("importBtn").innerHTML;
 let formNoRenewal = false; // 表单当前是否按“无需保号”处理（与界面显示保持一致）
 let telegramButtonsEnabled = false; // 服务端是否已为提醒消息启用续期按钮
@@ -26,6 +28,36 @@ let tagFilter = "";
 let notifyMode = "daily";
 let customExchangeRates = {};
 let quarantineItems = [];
+
+function applyTheme(dark) {
+  document.documentElement.classList.toggle("dark", dark);
+  document.querySelectorAll(".theme-toggle-btn i").forEach((icon) => {
+    icon.className = dark
+      ? "fa-solid fa-sun text-amber-400 text-sm"
+      : "fa-solid fa-moon text-sm";
+  });
+}
+
+function initTheme() {
+  let saved = null;
+  try {
+    saved = localStorage.getItem("esim_theme");
+  } catch {}
+  const prefersDark =
+    typeof window.matchMedia === "function" &&
+    window.matchMedia("(prefers-color-scheme: dark)").matches;
+  applyTheme(saved ? saved === "dark" : prefersDark);
+}
+
+function toggleTheme() {
+  const nextDark = !document.documentElement.classList.contains("dark");
+  applyTheme(nextDark);
+  try {
+    localStorage.setItem("esim_theme", nextDark ? "dark" : "light");
+  } catch {}
+}
+
+initTheme();
 
 // ================= XSS 防护 =================
 function escapeHTML(str) {
@@ -168,8 +200,32 @@ async function verifyCode() {
     alert(e.message || "网络错误，验证失败");
   } finally {
     btn.disabled = false;
-    btn.textContent = "登录面板";
+    btn.innerHTML = LOGIN_BUTTON_LABEL;
   }
+}
+
+function setBatchButtonVisual(active) {
+  const btn = document.getElementById("batchModeBtn");
+  const activeClasses = [
+    "bg-blue-50",
+    "dark:bg-blue-950/70",
+    "border-blue-300",
+    "dark:border-blue-700",
+    "text-blue-700",
+    "dark:text-blue-300",
+  ];
+  const idleClasses = [
+    "bg-white/80",
+    "dark:bg-slate-800/80",
+    "text-slate-700",
+    "dark:text-slate-200",
+    "border-slate-200/90",
+    "dark:border-slate-700",
+  ];
+  btn.classList.toggle("ring-2", active);
+  btn.classList.toggle("ring-blue-500/20", active);
+  for (const cls of activeClasses) btn.classList.toggle(cls, active);
+  for (const cls of idleClasses) btn.classList.toggle(cls, !active);
 }
 
 async function logout(revoke = true) {
@@ -209,12 +265,7 @@ async function logout(revoke = true) {
   document.getElementById("cost-summary").replaceChildren();
   document.getElementById("status-filter-container").replaceChildren();
   document.getElementById("tag-filter-container").replaceChildren();
-  document
-    .getElementById("batchModeBtn")
-    .classList.remove("bg-blue-100", "border-blue-300", "text-blue-700");
-  document
-    .getElementById("batchModeBtn")
-    .classList.add("bg-white/60", "text-gray-700", "border-gray-200/50");
+  setBatchButtonVisual(false);
   for (const id of [
     "addModal",
     "renewModal",
@@ -235,7 +286,7 @@ async function logout(revoke = true) {
   ])
     document.getElementById(id).value = "";
   document.getElementById("loginBtn").disabled = false;
-  document.getElementById("loginBtn").textContent = "登录面板";
+  document.getElementById("loginBtn").innerHTML = LOGIN_BUTTON_LABEL;
   document.getElementById("sendCodeBtn").disabled = false;
   document.getElementById("sendCodeBtn").innerHTML = SEND_CODE_LABEL;
   updateSelectedCount();
@@ -385,19 +436,15 @@ function toggleBatchMode() {
   const container = document.getElementById("main-container");
   const bar = document.getElementById("batchBar");
   bar.hidden = !batchMode;
-  const btn = document.getElementById("batchModeBtn");
 
   if (batchMode) {
     container.classList.add("batch-mode");
     bar.classList.add("show");
-    btn.classList.add("bg-blue-100", "border-blue-300", "text-blue-700");
-    btn.classList.remove("bg-white/60", "text-gray-700", "border-gray-200/50");
   } else {
     container.classList.remove("batch-mode");
     bar.classList.remove("show");
-    btn.classList.remove("bg-blue-100", "border-blue-300", "text-blue-700");
-    btn.classList.add("bg-white/60", "text-gray-700", "border-gray-200/50");
   }
+  setBatchButtonVisual(batchMode);
   updateSelectedCount();
   // 重新渲染以显示/隐藏复选框
   filterAndRender();
@@ -555,25 +602,45 @@ function renderFilterBars() {
   }
   if (tagFilter && !allTags.has(tagFilter)) tagFilter = "";
   const pills = [
-    { key: "all", label: `全部活跃 (${counts.all})` },
-    { key: "danger", label: `告警/过期 (${counts.danger})` },
-    { key: "warning", label: `建议关注 (${counts.warning})` },
-    { key: "safe", label: `安全 (${counts.safe})` },
+    { key: "all", label: `全部活跃 (${counts.all})`, dot: "bg-blue-500" },
+    {
+      key: "danger",
+      label: `告警/过期 (${counts.danger})`,
+      dot: "bg-rose-500",
+    },
+    {
+      key: "warning",
+      label: `建议关注 (${counts.warning})`,
+      dot: "bg-amber-400",
+    },
+    { key: "safe", label: `安全 (${counts.safe})`, dot: "bg-emerald-500" },
     ...(counts.noRenewal
-      ? [{ key: "noRenewal", label: `无需保号 (${counts.noRenewal})` }]
+      ? [
+          {
+            key: "noRenewal",
+            label: `无需保号 (${counts.noRenewal})`,
+            dot: "bg-teal-500",
+          },
+        ]
       : []),
     ...(counts.archived
-      ? [{ key: "archived", label: `已归档 (${counts.archived})` }]
+      ? [
+          {
+            key: "archived",
+            label: `已归档 (${counts.archived})`,
+            dot: "bg-slate-400",
+          },
+        ]
       : []),
   ];
   statusContainer.innerHTML = pills
     .map(
       (pill) =>
-        `<button type="button" data-status-filter="${pill.key}" class="px-2.5 py-1 rounded-full font-semibold border transition-colors ${
+        `<button type="button" data-status-filter="${pill.key}" class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full font-semibold border transition-all tabular-nums ${
           statusFilter === pill.key
-            ? "bg-blue-600 text-white border-blue-600"
-            : "bg-white/70 text-gray-700 border-gray-200/70 hover:bg-blue-50"
-        }">${escapeHTML(pill.label)}</button>`,
+            ? "bg-blue-600 text-white border-blue-600 shadow-sm shadow-blue-600/20"
+            : "bg-white dark:bg-slate-800/90 text-slate-600 dark:text-slate-300 border-slate-200/80 dark:border-slate-700 hover:border-blue-300 dark:hover:border-blue-700 hover:text-blue-600 dark:hover:text-blue-300"
+        }"><span class="w-1.5 h-1.5 rounded-full ${statusFilter === pill.key ? "bg-white" : pill.dot}"></span>${escapeHTML(pill.label)}</button>`,
     )
     .join("");
   if (allTags.size) {
@@ -581,10 +648,10 @@ function renderFilterBars() {
       .sort((a, b) => a.localeCompare(b, "zh-CN"))
       .map(
         (tag) =>
-          `<button type="button" data-tag-filter="${escapeHTML(tag)}" class="px-2.5 py-1 rounded-full font-semibold border transition-colors ${
+          `<button type="button" data-tag-filter="${escapeHTML(tag)}" class="px-2.5 py-1 rounded-full font-semibold border transition-all ${
             tagFilter === tag
-              ? "bg-indigo-600 text-white border-indigo-600"
-              : "bg-indigo-50/80 text-indigo-700 border-indigo-200/70 hover:bg-indigo-100"
+              ? "bg-indigo-600 text-white border-indigo-600 shadow-sm shadow-indigo-600/20"
+              : "bg-indigo-50/80 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border-indigo-200/70 dark:border-indigo-800/70 hover:bg-indigo-100 dark:hover:bg-indigo-900/70"
           }"># ${escapeHTML(tag)}</button>`,
       )
       .join("");
@@ -605,26 +672,28 @@ function renderCostSummary() {
     return;
   }
   const fmt = (bucket) => {
-    const items = [...bucket.byCurrency.entries()]
+    const items = `<span class="font-mono font-semibold tabular-nums">${[
+      ...bucket.byCurrency.entries(),
+    ]
       .map(([cur, val]) => `${escapeHTML(cur)} ${Number(val.toFixed(2))}`)
-      .join(" + ");
+      .join(" + ")}</span>`;
     if (bucket.totalCny === null) return items;
     const unmappedNote = bucket.unmapped.length
       ? `，未含 ${bucket.unmapped.map(escapeHTML).join("、")}`
       : "";
-    return `${items} <span class="text-amber-700 font-semibold">（折合 CNY ¥${bucket.totalCny}${unmappedNote}）</span>`;
+    return `${items} <span class="inline-flex items-center px-2 py-0.5 rounded-md bg-amber-100/80 dark:bg-amber-950/70 text-amber-800 dark:text-amber-300 font-semibold tabular-nums">折合 CNY ¥${bucket.totalCny}${unmappedNote}</span>`;
   };
   const parts = [];
   if (summary.annual.byCurrency.size)
     parts.push(
-      `<span><i class="fa-solid fa-coins text-amber-500 mr-1"></i><strong>预估年保号成本：</strong>${fmt(summary.annual)}</span>`,
+      `<span class="inline-flex flex-wrap items-center gap-1.5"><i class="fa-solid fa-coins text-amber-500"></i><strong class="text-slate-600 dark:text-slate-300">预估年保号成本：</strong>${fmt(summary.annual)}</span>`,
     );
   if (summary.spent.byCurrency.size)
     parts.push(
-      `<span><i class="fa-solid fa-receipt text-indigo-500 mr-1"></i><strong>已记录续期支出：</strong>${fmt(summary.spent)}</span>`,
+      `<span class="inline-flex flex-wrap items-center gap-1.5"><i class="fa-solid fa-receipt text-indigo-500 dark:text-indigo-400"></i><strong class="text-slate-600 dark:text-slate-300">已记录续期支出：</strong>${fmt(summary.spent)}</span>`,
     );
   parts.push(
-    `<button type="button" data-open-rates class="ml-auto bg-white/80 hover:bg-white text-indigo-700 font-semibold px-2.5 py-1 rounded-lg border border-indigo-200/80"><i class="fa-solid fa-sliders mr-1"></i>汇率设置</button>`,
+    `<button type="button" data-open-rates class="ml-auto inline-flex items-center gap-1.5 bg-white dark:bg-slate-800 hover:bg-indigo-50 dark:hover:bg-slate-700 text-indigo-600 dark:text-indigo-300 font-semibold px-3 py-1.5 rounded-xl border border-slate-200/80 dark:border-slate-700 transition-colors shadow-sm"><i class="fa-solid fa-sliders"></i>汇率设置</button>`,
   );
   el.innerHTML = parts.join("");
   el.classList.remove("hidden");
@@ -646,7 +715,14 @@ function renderCards(esims) {
   const today = todayString();
 
   if (esims.length === 0) {
-    container.innerHTML = `<div class="col-span-full text-center py-16 text-gray-500"><i class="fa-solid fa-box-open text-4xl mb-3"></i><p>没有匹配的号码记录</p></div>`;
+    container.innerHTML = `
+      <div class="col-span-full text-center py-16 px-4 rounded-2xl border border-dashed border-slate-300/80 dark:border-slate-700 bg-white/40 dark:bg-slate-900/30">
+        <div class="w-14 h-14 rounded-2xl bg-slate-100 dark:bg-slate-800 text-slate-400 dark:text-slate-500 flex items-center justify-center mx-auto mb-3 text-2xl">
+          <i class="fa-solid fa-sim-card"></i>
+        </div>
+        <p class="text-slate-700 dark:text-slate-200 font-semibold text-sm">没有匹配的号码记录</p>
+        <p class="text-slate-400 dark:text-slate-500 text-xs mt-1">尝试清除搜索关键词、切换筛选条件或点击右上角「添加号码」</p>
+      </div>`;
     updateSelectedCount();
     return;
   }
@@ -663,34 +739,48 @@ function renderCards(esims) {
     const diffDays = trackExpiry ? daysBetween(today, sim.expireDate) : 0;
     const reminderDays = sim.reminderDays ?? 15;
 
-    let statusColor = "bg-green-500";
+    let accentBar = "from-emerald-400 to-teal-500";
+    let statusColor = "bg-gradient-to-r from-emerald-400 to-teal-500";
     let statusText = "状态安全";
-    let badgeClass = "bg-green-100 text-green-800";
-    let icon = "fa-check-circle text-green-500";
+    let badgeClass =
+      "bg-emerald-50 dark:bg-emerald-950/70 text-emerald-700 dark:text-emerald-300 border-emerald-200/80 dark:border-emerald-800/70";
+    let icon = "fa-circle-check text-emerald-500";
 
     if (archived) {
-      statusColor = "bg-gray-400";
+      accentBar =
+        "from-slate-300 to-slate-400 dark:from-slate-600 dark:to-slate-700";
+      statusColor = "bg-slate-400";
       statusText = "已归档";
-      badgeClass = "bg-gray-200 text-gray-700";
-      icon = "fa-box-archive text-gray-500";
+      badgeClass =
+        "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700";
+      icon = "fa-box-archive text-slate-400";
     } else if (noRenewal) {
+      accentBar = "from-teal-400 to-cyan-500";
       statusText = "无需保号";
-      badgeClass = "bg-emerald-100 text-emerald-800";
+      badgeClass =
+        "bg-teal-50 dark:bg-teal-950/70 text-teal-700 dark:text-teal-300 border-teal-200/80 dark:border-teal-800/70";
+      icon = "fa-infinity text-teal-500";
     } else if (diffDays <= 0) {
-      statusColor = "bg-gray-500";
+      accentBar = "from-rose-600 to-red-700";
+      statusColor = "bg-rose-600";
       statusText = diffDays === 0 ? "今日到期" : "已过期";
-      badgeClass = "bg-gray-100 text-gray-800";
-      icon = "fa-times-circle text-gray-500";
+      badgeClass =
+        "bg-rose-100 dark:bg-rose-950/90 text-rose-800 dark:text-rose-200 border-rose-300/80 dark:border-rose-800";
+      icon = "fa-circle-exclamation text-rose-600 dark:text-rose-400";
     } else if (diffDays <= reminderDays) {
-      statusColor = "bg-red-500";
+      accentBar = "from-rose-500 to-orange-500";
+      statusColor = "bg-gradient-to-r from-rose-500 to-orange-500";
       statusText = "即将过期";
-      badgeClass = "bg-red-100 text-red-800";
-      icon = "fa-triangle-exclamation text-red-500";
+      badgeClass =
+        "bg-rose-50 dark:bg-rose-950/70 text-rose-700 dark:text-rose-300 border-rose-200/80 dark:border-rose-800/70";
+      icon = "fa-triangle-exclamation text-rose-500";
     } else if (diffDays <= reminderDays * 3) {
-      statusColor = "bg-yellow-400";
+      accentBar = "from-amber-400 to-orange-400";
+      statusColor = "bg-gradient-to-r from-amber-400 to-orange-400";
       statusText = "建议关注";
-      badgeClass = "bg-yellow-100 text-yellow-800";
-      icon = "fa-bell text-yellow-500";
+      badgeClass =
+        "bg-amber-50 dark:bg-amber-950/70 text-amber-700 dark:text-amber-300 border-amber-200/80 dark:border-amber-800/70";
+      icon = "fa-bell text-amber-500";
     }
 
     const percent = trackExpiry
@@ -698,27 +788,27 @@ function renderCards(esims) {
       : 0;
     const flagEmoji = getCountryFlag(sim.number);
 
-    // 渲染备注区域
+    // 备注/保号规则区域
     const remarkHTML = sim.remark
-      ? `<div class="bg-blue-50/60 rounded-lg p-2.5 mb-3 text-xs text-gray-700 border border-blue-100/60 break-words leading-relaxed"><i class="fa-regular fa-comment-dots mr-1.5 text-blue-400"></i>${escapeHTML(sim.remark)}</div>`
+      ? `<div class="bg-blue-50/55 dark:bg-blue-950/30 rounded-xl px-3 py-2 mb-3 text-xs text-slate-600 dark:text-slate-300 border border-blue-100/80 dark:border-blue-900/50 break-words leading-relaxed"><i class="fa-regular fa-comment-dots mr-1.5 text-blue-500 dark:text-sky-400"></i>${escapeHTML(sim.remark)}</div>`
       : "";
 
     const accountHTML = sim.account
-      ? `<div class="flex items-center justify-between gap-2 text-xs text-gray-600 mb-2 bg-white/60 rounded-lg px-2.5 py-1.5 border border-gray-100"><span class="truncate"><i class="fa-regular fa-user mr-1.5 text-gray-400"></i>${escapeHTML(sim.account)}</span><button type="button" data-action="copy" data-copy-text="${escapeHTML(sim.account)}" class="text-gray-400 hover:text-blue-600 flex-shrink-0" title="复制账号/载体"><i class="fa-regular fa-copy"></i></button></div>`
+      ? `<div class="flex items-center justify-between gap-2 text-xs text-slate-600 dark:text-slate-300 mb-2.5 bg-slate-50/80 dark:bg-slate-800/60 rounded-xl px-3 py-1.5 border border-slate-200/60 dark:border-slate-700/60"><span class="truncate"><i class="fa-regular fa-user mr-1.5 text-slate-400"></i>${escapeHTML(sim.account)}</span><button type="button" data-action="copy" data-copy-text="${escapeHTML(sim.account)}" class="text-slate-400 hover:text-blue-600 dark:hover:text-sky-400 flex-shrink-0 transition-colors" title="复制账号/载体"><i class="fa-regular fa-copy"></i></button></div>`
       : "";
 
     const metaChips = [];
     if (sim.balance)
       metaChips.push(
-        `<span class="bg-emerald-50 text-emerald-700 border border-emerald-100 px-2 py-0.5 rounded-full">余额: ${escapeHTML(sim.balance)}</span>`,
+        `<span class="bg-emerald-50/90 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200/70 dark:border-emerald-800/60 px-2 py-0.5 rounded-md tabular-nums">余额: ${escapeHTML(sim.balance)}</span>`,
       );
     if (sim.renewCost != null)
       metaChips.push(
-        `<span class="bg-indigo-50 text-indigo-700 border border-indigo-100 px-2 py-0.5 rounded-full">每次: ${escapeHTML(sim.renewCost)}${sim.renewCurrency ? " " + escapeHTML(sim.renewCurrency) : ""}</span>`,
+        `<span class="bg-indigo-50/90 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200/70 dark:border-indigo-800/60 px-2 py-0.5 rounded-md tabular-nums">每次: ${escapeHTML(sim.renewCost)}${sim.renewCurrency ? " " + escapeHTML(sim.renewCurrency) : ""}</span>`,
       );
     for (const tag of sim.tags || [])
       metaChips.push(
-        `<span class="bg-gray-100 text-gray-700 px-2 py-0.5 rounded-full"># ${escapeHTML(tag)}</span>`,
+        `<span class="bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200/70 dark:border-slate-700 px-2 py-0.5 rounded-md"># ${escapeHTML(tag)}</span>`,
       );
     const metaHTML = metaChips.length
       ? `<div class="flex flex-wrap gap-1.5 mb-3 text-[11px] font-medium">${metaChips.join("")}</div>`
@@ -728,18 +818,23 @@ function renderCards(esims) {
       ? sim.renewalHistory.length
       : 0;
     const renewalHistoryCounter = renewalHistoryCount
-      ? `<span class="absolute -top-1 -right-1 min-w-4 h-4 px-1 rounded-full bg-violet-600 text-white text-[9px] font-bold flex items-center justify-center">${renewalHistoryCount}</span>`
+      ? `<span class="absolute -top-1 -right-1 min-w-4 h-4 px-1 rounded-full bg-violet-600 text-white text-[9px] font-bold flex items-center justify-center shadow-sm">${renewalHistoryCount}</span>`
       : "";
 
-    // 自动延期与静音标签
-    const autoRenewBadge =
-      !noRenewal && !archived && sim.autoRenew
-        ? '<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-100 text-indigo-700 whitespace-nowrap flex-shrink-0"><i class="fa-solid fa-arrows-rotate mr-0.5"></i>自动延期</span>'
-        : "";
-    const mutedBadge =
-      !noRenewal && !archived && sim.muteReminders
-        ? '<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-700 whitespace-nowrap flex-shrink-0"><i class="fa-solid fa-bell-slash mr-0.5"></i>已静音</span>'
-        : "";
+    // 自动延期、静音与自定义提醒天数微标签
+    const statusSubBadges = [];
+    if (!noRenewal && !archived && sim.autoRenew)
+      statusSubBadges.push(
+        '<span class="px-2 py-0.5 rounded-md text-[10px] font-semibold bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-300 border border-indigo-200/60 dark:border-indigo-800/60 whitespace-nowrap"><i class="fa-solid fa-arrows-rotate mr-0.5"></i>自动延期</span>',
+      );
+    if (!noRenewal && !archived && sim.muteReminders)
+      statusSubBadges.push(
+        '<span class="px-2 py-0.5 rounded-md text-[10px] font-semibold bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border border-amber-200/60 dark:border-amber-800/60 whitespace-nowrap"><i class="fa-solid fa-bell-slash mr-0.5"></i>已静音</span>',
+      );
+    if (!noRenewal && reminderDays !== 15)
+      statusSubBadges.push(
+        `<span class="px-2 py-0.5 rounded-md text-[10px] font-semibold bg-amber-50/90 dark:bg-amber-950/50 text-amber-700 dark:text-amber-300 border border-amber-200/60 dark:border-amber-800/60 whitespace-nowrap">提前${escapeHTML(reminderDays)}天提醒</span>`,
+      );
 
     // 周期显示
     const cycleUnit = sim.cycleUnit || "day";
@@ -750,99 +845,103 @@ function renderCards(esims) {
         : "-";
     const brand = PHONE_CARDS.find((card) => card.id === sim.brandId);
     const brandHTML = brand
-      ? `<p class="text-xs text-gray-500 mb-3">${escapeHTML(brand.region)} · ${escapeHTML(brand.name)}</p>`
+      ? `<p class="text-xs text-slate-400 dark:text-slate-500 mt-0.5 truncate">${escapeHTML(brand.region)} · ${escapeHTML(brand.name)}</p>`
       : "";
-
-    // 提醒天数标签
-    const reminderLabel =
-      !noRenewal && reminderDays !== 15
-        ? `<span class="text-[10px] bg-amber-50 text-amber-700 px-1.5 py-0.5 rounded-full font-semibold border border-amber-100/60">提前${escapeHTML(reminderDays)}天提醒</span>`
-        : "";
 
     // 批量模式复选框
     const isSelected = selectedIds.has(sim.id);
-    const checkboxHTML = `<div class="card-checkbox absolute top-4 left-4 z-20">
-            <input type="checkbox" class="card-select-input w-5 h-5 rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer" ${isSelected ? "checked" : ""} data-select-id="${escapeHTML(sim.id)}" aria-label="选择 ${escapeHTML(sim.name)}">
+    const checkboxHTML = `<div class="card-checkbox absolute top-5 left-4 z-20">
+            <input type="checkbox" class="card-select-input w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer" ${isSelected ? "checked" : ""} data-select-id="${escapeHTML(sim.id)}" aria-label="选择 ${escapeHTML(sim.name)}">
         </div>`;
 
     const timingHTML = noRenewal
-      ? '<p class="text-sm font-semibold text-emerald-700">无需设置保号期限</p>'
+      ? `<div class="flex items-center justify-between text-xs py-1">
+           <span class="font-semibold text-teal-700 dark:text-teal-300"><i class="fa-solid fa-circle-check mr-1.5 text-teal-500"></i>无需设置保号期限</span>
+           ${sim.startDate ? `<span class="text-slate-400 font-mono tabular-nums">启用: ${escapeHTML(sim.startDate)}</span>` : ""}
+         </div>`
       : archived
-        ? `<p class="text-xs text-gray-500 font-medium">到期日: ${escapeHTML(sim.expireDate)}</p>`
-        : `<div class="flex justify-between text-sm font-semibold mb-2">
-                        <span class="text-gray-700">剩余时间</span>
-                        <span class="text-gray-900 font-bold ${diffDays <= reminderDays && diffDays > 0 ? "text-red-600" : ""}">${diffDays < 0 ? "0" : diffDays} 天</span>
-                    </div>
-                    <div class="w-full bg-gray-200/60 rounded-full h-3 mb-2 shadow-inner">
-                        <div class="${statusColor} h-3 rounded-full shadow-sm transition-all duration-1000" style="width: ${percent}%"></div>
-                    </div>
-                    <div class="flex justify-between text-xs text-gray-500 mt-2 font-medium">
-                        <span><i class="fa-solid fa-arrows-rotate mr-1"></i>周期: ${escapeHTML(cycleLabel)}</span>
-                        <span>到期日: ${escapeHTML(sim.expireDate)}</span>
-                    </div>`;
+        ? `<div class="flex items-center justify-between text-xs py-1 text-slate-500 dark:text-slate-400">
+             <span><i class="fa-solid fa-box-archive mr-1.5 text-slate-400"></i>卡片已归档停用</span>
+             <span class="font-mono tabular-nums">到期日: ${escapeHTML(sim.expireDate)}</span>
+           </div>`
+        : `<div class="flex justify-between items-baseline text-xs mb-1.5">
+             <span class="text-slate-500 dark:text-slate-400 font-medium">剩余时间</span>
+             <span class="font-mono text-sm font-bold tabular-nums ${diffDays <= reminderDays ? "text-rose-600 dark:text-rose-400" : "text-slate-900 dark:text-white"}">${diffDays < 0 ? "0" : diffDays} <span class="text-xs font-sans font-semibold">天</span></span>
+           </div>
+           <div class="w-full bg-slate-100 dark:bg-slate-800 rounded-full h-2 mb-2 overflow-hidden">
+             <div class="${statusColor} h-2 rounded-full transition-all duration-700" style="width: ${percent}%"></div>
+           </div>
+           <div class="flex justify-between text-[11px] text-slate-500 dark:text-slate-400 font-medium">
+             <span><i class="fa-solid fa-arrows-rotate mr-1 text-slate-400"></i>周期: ${escapeHTML(cycleLabel)}</span>
+             <span class="font-mono tabular-nums">到期日: ${escapeHTML(sim.expireDate)}</span>
+           </div>`;
 
     const copyNumberBtn = sim.number
-      ? `<button type="button" data-action="copy" data-copy-text="${escapeHTML(sim.number)}" class="text-gray-400 hover:text-blue-600 flex-shrink-0" title="复制号码"><i class="fa-regular fa-copy"></i></button>`
+      ? `<button type="button" data-action="copy" data-copy-text="${escapeHTML(sim.number)}" class="text-slate-400 hover:text-blue-600 dark:hover:text-sky-400 flex-shrink-0 transition-colors ml-0.5" title="复制号码"><i class="fa-regular fa-copy text-xs"></i></button>`
+      : "";
+
+    const subBadgesHTML = statusSubBadges.length
+      ? `<div class="flex flex-wrap gap-1.5 mb-2.5">${statusSubBadges.join("")}</div>`
       : "";
 
     const cardHTML = `
-            <div class="glass-card rounded-2xl p-6 relative overflow-hidden group flex flex-col h-full ${isSelected ? "card-selected" : ""} ${archived ? "opacity-80" : ""}" data-id="${escapeHTML(sim.id)}">
+            <div class="glass-card rounded-2xl relative overflow-hidden group flex flex-col h-full ${isSelected ? "card-selected" : ""} ${archived ? "opacity-80" : ""}" data-id="${escapeHTML(sim.id)}">
+                <div class="h-1 w-full bg-gradient-to-r ${accentBar}"></div>
                 ${checkboxHTML}
 
-                <!-- 操作按钮组 -->
-                <div class="absolute top-4 right-4 flex gap-1.5 opacity-100 lg:opacity-0 lg:group-hover:opacity-100 lg:group-focus-within:opacity-100 transition-opacity duration-150 z-20 bg-white p-1.5 rounded-full border border-white/60 shadow-sm">
-                    <button data-action="edit" data-card-id="${escapeHTML(sim.id)}" class="text-green-600 hover:text-white hover:bg-green-500 bg-white w-8 h-8 rounded-full flex items-center justify-center transition-colors shadow-sm" title="编辑卡片资料">
-                        <i class="fa-solid fa-pen text-sm"></i>
-                    </button>
-                    ${
-                      noRenewal
-                        ? ""
-                        : `<button data-action="renew" data-card-id="${escapeHTML(sim.id)}" class="text-blue-600 hover:text-white hover:bg-blue-500 bg-white w-8 h-8 rounded-full flex items-center justify-center transition-colors shadow-sm" title="续期">
-                        <i class="fa-solid fa-rotate-right text-sm"></i>
-                    </button>`
-                    }
-                    <button data-action="history" data-card-id="${escapeHTML(sim.id)}" class="relative text-violet-600 hover:text-white hover:bg-violet-500 bg-white w-8 h-8 rounded-full flex items-center justify-center transition-colors shadow-sm" title="查看续期记录（${renewalHistoryCount}）">
-                        <i class="fa-solid fa-clock-rotate-left text-sm"></i>
-                        ${renewalHistoryCounter}
-                    </button>
-                    <button data-action="delete" data-card-id="${escapeHTML(sim.id)}" class="text-red-500 hover:text-white hover:bg-red-500 bg-white w-8 h-8 rounded-full flex items-center justify-center transition-colors shadow-sm" title="删除号码">
-                        <i class="fa-solid fa-trash-can text-sm"></i>
-                    </button>
-                </div>
-
-                <!-- 标题区域 -->
-                <div class="pr-40 mb-3 ${batchMode ? "pl-8" : ""}">
-                    <h2 class="text-xl font-bold text-gray-900 truncate" title="${escapeHTML(sim.name)}">${escapeHTML(sim.name)}</h2>
-                </div>
-                ${brandHTML}
-
-                <!-- 号码与状态区域 -->
-                <div class="flex justify-between items-center mb-3 gap-2">
-                    <p class="text-gray-600 font-mono text-sm flex items-center gap-1.5 truncate">
-                        ${flagEmoji}
-                        <span class="truncate">${escapeHTML(sim.number || "未登记号码")}</span>
-                        ${copyNumberBtn}
-                    </p>
-                    <!-- 状态标签 -->
-                    <div class="flex items-center gap-1.5 flex-shrink-0 flex-wrap justify-end">
-                        ${autoRenewBadge}
-                        ${mutedBadge}
-                        ${reminderLabel}
-                        <span class="px-2.5 py-1 rounded-full text-[11px] font-bold shadow-sm whitespace-nowrap flex-shrink-0 ${badgeClass}">
-                            <i class="fa-solid ${icon} mr-1"></i>${statusText}
+                <div class="p-5 flex flex-col flex-1">
+                    <!-- 顶部标题与状态胶囊 -->
+                    <div class="flex items-start justify-between gap-2.5 mb-3 ${batchMode ? "pl-6" : ""}">
+                        <div class="min-w-0 flex-1">
+                            <h2 class="text-base sm:text-lg font-bold text-slate-900 dark:text-white truncate leading-snug" title="${escapeHTML(sim.name)}">${escapeHTML(sim.name)}</h2>
+                            ${brandHTML}
+                        </div>
+                        <span class="px-2.5 py-1 rounded-full text-[11px] font-bold border whitespace-nowrap flex-shrink-0 inline-flex items-center gap-1 ${badgeClass}">
+                            <i class="fa-solid ${icon}"></i>${statusText}
                         </span>
                     </div>
-                </div>
 
-                ${accountHTML}
-                ${metaHTML}
+                    <!-- 号码胶囊栏 -->
+                    <div class="mb-2.5">
+                        <div class="inline-flex items-center gap-2 max-w-full px-3 py-1.5 rounded-xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200/70 dark:border-slate-700/70">
+                            ${flagEmoji}
+                            <span class="font-mono text-xs sm:text-sm font-medium text-slate-700 dark:text-slate-200 truncate">${escapeHTML(sim.number || "未登记号码")}</span>
+                            ${copyNumberBtn}
+                        </div>
+                    </div>
 
-                <!-- 备注/保号要求区域 -->
-                ${remarkHTML}
+                    ${subBadgesHTML}
+                    ${accountHTML}
+                    ${metaHTML}
+                    ${remarkHTML}
 
-                <!-- 底部进度条区域 -->
-                <div class="mt-auto">
-                    ${timingHTML}
+                    <!-- 底部进度与操作栏 -->
+                    <div class="mt-auto pt-3 border-t border-slate-100 dark:border-slate-700/60">
+                        ${timingHTML}
+                        <div class="mt-3 pt-2.5 border-t border-slate-100 dark:border-slate-700/50 flex items-center justify-between gap-2">
+                            <div>
+                                ${
+                                  noRenewal
+                                    ? '<span class="text-[11px] text-slate-400 dark:text-slate-500 font-medium">长期免保号卡片</span>'
+                                    : `<button data-action="renew" data-card-id="${escapeHTML(sim.id)}" class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-50 dark:bg-blue-950/70 hover:bg-blue-600 dark:hover:bg-blue-600 text-blue-600 dark:text-sky-400 hover:text-white text-xs font-semibold transition-colors" title="续期">
+                                        <i class="fa-solid fa-rotate-right text-[11px]"></i> 续期
+                                    </button>`
+                                }
+                            </div>
+                            <div class="flex items-center gap-1">
+                                <button data-action="edit" data-card-id="${escapeHTML(sim.id)}" class="w-8 h-8 rounded-lg text-slate-500 dark:text-slate-400 hover:text-blue-600 dark:hover:text-sky-400 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center justify-center transition-colors" title="编辑卡片资料">
+                                    <i class="fa-solid fa-pen text-xs"></i>
+                                </button>
+                                <button data-action="history" data-card-id="${escapeHTML(sim.id)}" class="relative w-8 h-8 rounded-lg text-slate-500 dark:text-slate-400 hover:text-violet-600 dark:hover:text-violet-400 hover:bg-violet-50 dark:hover:bg-violet-950/50 flex items-center justify-center transition-colors" title="查看续期记录（${renewalHistoryCount}）">
+                                    <i class="fa-solid fa-clock-rotate-left text-xs"></i>
+                                    ${renewalHistoryCounter}
+                                </button>
+                                <button data-action="delete" data-card-id="${escapeHTML(sim.id)}" class="w-8 h-8 rounded-lg text-slate-400 dark:text-slate-500 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/50 flex items-center justify-center transition-colors" title="删除号码">
+                                    <i class="fa-solid fa-trash-can text-xs"></i>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
         `;
@@ -998,7 +1097,7 @@ function updateRenewPreview() {
       } catch (e) {
         next = e.message;
       }
-      return `<div class="flex justify-between gap-2"><span class="font-semibold text-gray-700 truncate">${escapeHTML(card.name)}</span><span class="text-blue-600 font-mono flex-shrink-0">${escapeHTML(card.expireDate)} → ${escapeHTML(next)}</span></div>`;
+      return `<div class="flex justify-between gap-2"><span class="font-semibold text-slate-700 dark:text-slate-200 truncate">${escapeHTML(card.name)}</span><span class="text-blue-600 dark:text-sky-400 font-mono tabular-nums flex-shrink-0">${escapeHTML(card.expireDate)} → ${escapeHTML(next)}</span></div>`;
     })
     .join("");
   box.classList.remove("hidden");
@@ -1050,7 +1149,8 @@ async function confirmRenew() {
       );
     }
     if (generation !== sessionGeneration) return;
-    if (target.isBatch) target.visibleIds.forEach((id) => selectedIds.delete(id));
+    if (target.isBatch)
+      target.visibleIds.forEach((id) => selectedIds.delete(id));
     if (renewTarget === target) closeRenewModal();
     await fetchEsimData();
   } catch (e) {
@@ -1101,33 +1201,33 @@ function openRenewalHistory(id) {
         .map(
           (record, index) => `
             <article class="relative pl-8 pb-5 last:pb-0">
-              <span class="absolute left-1 top-1.5 w-3 h-3 rounded-full bg-violet-500 ring-4 ring-violet-100"></span>
-              <span class="absolute left-[9px] top-5 bottom-0 w-px bg-violet-100 ${index === history.length - 1 ? "hidden" : ""}"></span>
-              <div class="rounded-xl border border-violet-100 bg-violet-50/50 p-4">
-                <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
-                  <span class="text-xs font-bold text-violet-700 bg-white border border-violet-100 rounded-full px-2.5 py-1">${escapeHTML(sourceLabels[record.source] || record.source)}</span>
-                  <time class="text-xs text-gray-500">${escapeHTML(formatRenewalTimestamp(record.renewedAt))}</time>
+              <span class="absolute left-1 top-1.5 w-3 h-3 rounded-full bg-violet-500 ring-4 ring-violet-100 dark:ring-violet-950"></span>
+              <span class="absolute left-[9px] top-5 bottom-0 w-px bg-violet-100 dark:bg-violet-900/60 ${index === history.length - 1 ? "hidden" : ""}"></span>
+              <div class="rounded-2xl border border-violet-100 dark:border-violet-900/60 bg-violet-50/50 dark:bg-violet-950/30 p-4">
+                <div class="flex flex-wrap items-center justify-between gap-2 mb-2.5">
+                  <span class="text-xs font-bold text-violet-700 dark:text-violet-300 bg-white dark:bg-slate-800 border border-violet-100 dark:border-violet-800/70 rounded-full px-2.5 py-0.5">${escapeHTML(sourceLabels[record.source] || record.source)}</span>
+                  <time class="text-xs font-mono text-slate-500 dark:text-slate-400 tabular-nums">${escapeHTML(formatRenewalTimestamp(record.renewedAt))}</time>
                 </div>
-                <div class="flex items-center gap-2 text-sm font-semibold text-gray-800 break-all">
+                <div class="flex items-center gap-2 text-sm font-mono font-semibold text-slate-800 dark:text-slate-100 break-all tabular-nums">
                   <span>${escapeHTML(record.previousExpireDate)}</span>
-                  <i class="fa-solid fa-arrow-right text-violet-400"></i>
-                  <span class="text-violet-700">${escapeHTML(record.newExpireDate)}</span>
+                  <i class="fa-solid fa-arrow-right text-violet-400 text-xs"></i>
+                  <span class="text-violet-700 dark:text-violet-300">${escapeHTML(record.newExpireDate)}</span>
                 </div>
-                <p class="mt-2 text-xs text-gray-500">${escapeHTML(modeLabels[record.mode] || record.mode)} · 周期 ${escapeHTML(record.cycle)} ${escapeHTML(getCycleUnitLabel(record.cycleUnit))}${record.source !== "auto" && record.cost != null ? ` · 花费 ${escapeHTML(record.cost)}${record.currency ? " " + escapeHTML(record.currency) : ""}` : ""}</p>
+                <p class="mt-2 text-xs text-slate-500 dark:text-slate-400">${escapeHTML(modeLabels[record.mode] || record.mode)} · 周期 ${escapeHTML(record.cycle)} ${escapeHTML(getCycleUnitLabel(record.cycleUnit))}${record.source !== "auto" && record.cost != null ? ` · 花费 ${escapeHTML(record.cost)}${record.currency ? " " + escapeHTML(record.currency) : ""}` : ""}</p>
                 ${
                   index === 0 &&
                   !sim.noRenewal &&
                   sim.expireDate === record.newExpireDate
-                    ? `<div class="mt-3 pt-2.5 border-t border-violet-100 flex justify-end"><button type="button" data-undo-renew="${escapeHTML(sim.id)}" class="text-xs font-semibold text-amber-700 hover:text-amber-900 bg-amber-50 hover:bg-amber-100 px-3 py-1 rounded-lg border border-amber-200"><i class="fa-solid fa-rotate-left mr-1"></i>撤销此次续期</button></div>`
+                    ? `<div class="mt-3 pt-2.5 border-t border-violet-100 dark:border-violet-900/50 flex justify-end"><button type="button" data-undo-renew="${escapeHTML(sim.id)}" class="text-xs font-semibold text-amber-700 dark:text-amber-300 hover:text-amber-900 bg-amber-50 dark:bg-amber-950/60 hover:bg-amber-100 dark:hover:bg-amber-900/70 px-3 py-1 rounded-lg border border-amber-200 dark:border-amber-800 transition-colors"><i class="fa-solid fa-rotate-left mr-1"></i>撤销此次续期</button></div>`
                     : ""
                 }
               </div>
             </article>`,
         )
         .join("")
-    : `<div class="rounded-xl border border-dashed border-gray-300 bg-gray-50/70 px-4 py-10 text-center text-gray-500">
-         <i class="fa-regular fa-clock text-3xl text-gray-300 mb-3"></i>
-         <p class="font-semibold">还没有续期记录</p>
+    : `<div class="rounded-2xl border border-dashed border-slate-300 dark:border-slate-700 bg-slate-50/70 dark:bg-slate-800/40 px-4 py-10 text-center text-slate-500 dark:text-slate-400">
+         <i class="fa-regular fa-clock text-3xl text-slate-300 dark:text-slate-600 mb-3"></i>
+         <p class="font-semibold text-slate-700 dark:text-slate-200 text-sm">还没有续期记录</p>
          <p class="text-xs mt-1">完成手动、批量或自动续期后会显示在这里</p>
        </div>`;
   showDialog("renewalHistoryModal");
@@ -1141,7 +1241,12 @@ async function undoLastRenewal(id) {
   if (!confirm("确定撤销最近一次续期并恢复原到期日？")) return;
   const generation = sessionGeneration;
   try {
-    await mutate(WORKER_API_URL, "PUT", { id, undoRenew: true }, target.revision);
+    await mutate(
+      WORKER_API_URL,
+      "PUT",
+      { id, undoRenew: true },
+      target.revision,
+    );
     if (generation !== sessionGeneration) return;
     if (renewalHistoryTarget === target) closeRenewalHistoryModal();
     await fetchEsimData();
@@ -1623,26 +1728,38 @@ function renderStats() {
     return;
   }
   container.innerHTML = `
-        <div role="button" tabindex="0" data-status-filter="safe" class="glass-card cursor-pointer rounded-2xl p-5 flex items-center justify-between border-l-4 border-l-green-500 ${statusFilter === "safe" ? "ring-2 ring-blue-500" : ""}">
-            <div>
-                <p class="text-gray-500 text-sm font-bold uppercase">安全卡片</p>
-                <p class="text-3xl font-black text-gray-800 mt-1">${safeCount}</p>
+        <div role="button" tabindex="0" data-status-filter="safe" class="glass-card cursor-pointer rounded-2xl p-4 sm:p-5 flex items-center justify-between relative overflow-hidden ${statusFilter === "safe" ? "ring-2 ring-blue-500" : ""}">
+            <div class="absolute inset-y-0 left-0 w-1 bg-gradient-to-b from-emerald-400 to-teal-500"></div>
+            <div class="pl-2">
+                <p class="text-slate-500 dark:text-slate-400 text-xs font-bold tracking-wide">安全卡片</p>
+                <p class="text-3xl font-extrabold text-slate-900 dark:text-white mt-1 tabular-nums">${safeCount}</p>
+                <p class="text-[11px] text-slate-400 dark:text-slate-500 mt-0.5">有效期充裕或免保号</p>
             </div>
-            <i class="fa-solid fa-shield text-4xl text-green-200"></i>
+            <div class="w-11 h-11 rounded-2xl bg-emerald-50 dark:bg-emerald-950/70 text-emerald-600 dark:text-emerald-400 border border-emerald-200/70 dark:border-emerald-800/60 flex items-center justify-center flex-shrink-0">
+                <i class="fa-solid fa-shield-halved text-lg"></i>
+            </div>
         </div>
-        <div role="button" tabindex="0" data-status-filter="warning" class="glass-card cursor-pointer rounded-2xl p-5 flex items-center justify-between border-l-4 border-l-yellow-400 ${statusFilter === "warning" ? "ring-2 ring-blue-500" : ""}">
-            <div>
-                <p class="text-gray-500 text-sm font-bold uppercase">建议关注</p>
-                <p class="text-3xl font-black text-gray-800 mt-1">${warningCount}</p>
+        <div role="button" tabindex="0" data-status-filter="warning" class="glass-card cursor-pointer rounded-2xl p-4 sm:p-5 flex items-center justify-between relative overflow-hidden ${statusFilter === "warning" ? "ring-2 ring-blue-500" : ""}">
+            <div class="absolute inset-y-0 left-0 w-1 bg-gradient-to-b from-amber-400 to-orange-400"></div>
+            <div class="pl-2">
+                <p class="text-slate-500 dark:text-slate-400 text-xs font-bold tracking-wide">建议关注</p>
+                <p class="text-3xl font-extrabold text-slate-900 dark:text-white mt-1 tabular-nums">${warningCount}</p>
+                <p class="text-[11px] text-slate-400 dark:text-slate-500 mt-0.5">临近提前关注窗口</p>
             </div>
-            <i class="fa-solid fa-clock text-4xl text-yellow-200"></i>
+            <div class="w-11 h-11 rounded-2xl bg-amber-50 dark:bg-amber-950/70 text-amber-600 dark:text-amber-400 border border-amber-200/70 dark:border-amber-800/60 flex items-center justify-center flex-shrink-0">
+                <i class="fa-solid fa-clock text-lg"></i>
+            </div>
         </div>
-        <div role="button" tabindex="0" data-status-filter="danger" class="glass-card cursor-pointer rounded-2xl p-5 flex items-center justify-between border-l-4 border-l-red-500 ${statusFilter === "danger" ? "ring-2 ring-blue-500" : ""}">
-            <div>
-                <p class="text-gray-500 text-sm font-bold uppercase">告警/过期</p>
-                <p class="text-3xl font-black text-gray-800 mt-1">${dangerCount}</p>
+        <div role="button" tabindex="0" data-status-filter="danger" class="glass-card cursor-pointer rounded-2xl p-4 sm:p-5 flex items-center justify-between relative overflow-hidden ${statusFilter === "danger" ? "ring-2 ring-blue-500" : ""}">
+            <div class="absolute inset-y-0 left-0 w-1 bg-gradient-to-b from-rose-500 to-red-600"></div>
+            <div class="pl-2">
+                <p class="text-slate-500 dark:text-slate-400 text-xs font-bold tracking-wide">告警 / 过期</p>
+                <p class="text-3xl font-extrabold text-slate-900 dark:text-white mt-1 tabular-nums">${dangerCount}</p>
+                <p class="text-[11px] text-slate-400 dark:text-slate-500 mt-0.5">需尽快完成保号续期</p>
             </div>
-            <i class="fa-solid fa-triangle-exclamation text-4xl text-red-200"></i>
+            <div class="w-11 h-11 rounded-2xl bg-rose-50 dark:bg-rose-950/70 text-rose-600 dark:text-rose-400 border border-rose-200/70 dark:border-rose-800/60 flex items-center justify-center flex-shrink-0">
+                <i class="fa-solid fa-triangle-exclamation text-lg"></i>
+            </div>
         </div>
     `;
 }
@@ -1706,6 +1823,12 @@ async function retryNotifications() {
 function setTelegramButtonsState(enabled) {
   telegramButtonsEnabled = enabled;
   document.getElementById("telegramButtonsBtn").classList.remove("hidden");
+  const dot = document.getElementById("telegramButtonsDot");
+  if (dot) {
+    dot.className = enabled
+      ? "w-1.5 h-1.5 rounded-full bg-emerald-500 shadow-sm shadow-emerald-500/50"
+      : "w-1.5 h-1.5 rounded-full bg-slate-300 dark:bg-slate-600";
+  }
   document.getElementById("telegramButtonsLabel").textContent = enabled
     ? "关闭 TG 按钮续期"
     : "启用 TG 按钮续期";
@@ -1721,20 +1844,20 @@ async function openQuarantineModal() {
       ? quarantineItems
           .map(
             (item, idx) => `
-          <div class="rounded-xl border border-amber-200 bg-amber-50/50 p-3 text-xs">
-            <div class="flex items-center justify-between gap-2 mb-1.5">
-              <span class="font-bold text-amber-800">第 ${escapeHTML(item.index ?? idx + 1)} 条 · ${escapeHTML(item.error)}</span>
+          <div class="rounded-2xl border border-amber-200 dark:border-amber-800/70 bg-amber-50/50 dark:bg-amber-950/30 p-3.5 text-xs">
+            <div class="flex items-center justify-between gap-2 mb-2">
+              <span class="font-bold text-amber-800 dark:text-amber-300">第 ${escapeHTML(item.index ?? idx + 1)} 条 · ${escapeHTML(item.error)}</span>
               ${
                 item.raw && typeof item.raw === "object"
-                  ? `<button type="button" data-repair-quarantine="${idx}" class="bg-blue-600 hover:bg-blue-700 text-white px-2.5 py-1 rounded-lg font-semibold">填入表单修复</button>`
+                  ? `<button type="button" data-repair-quarantine="${idx}" class="bg-blue-600 hover:bg-blue-700 text-white px-2.5 py-1 rounded-lg font-semibold transition-colors">填入表单修复</button>`
                   : ""
               }
             </div>
-            <pre class="overflow-x-auto bg-white/80 rounded-lg p-2 text-[11px] text-gray-700">${escapeHTML(JSON.stringify(item.raw, null, 2))}</pre>
+            <pre class="overflow-x-auto bg-white/90 dark:bg-slate-900/80 rounded-xl p-2.5 text-[11px] font-mono text-slate-700 dark:text-slate-300 border border-amber-100 dark:border-slate-800">${escapeHTML(JSON.stringify(item.raw, null, 2))}</pre>
           </div>`,
           )
           .join("")
-      : '<p class="text-sm text-gray-500 text-center py-6">当前没有待修正记录</p>';
+      : '<p class="text-sm text-slate-500 dark:text-slate-400 text-center py-6">当前没有待修正记录</p>';
     showDialog("quarantineModal");
   } catch (e) {
     alert(e.message);
@@ -1865,11 +1988,11 @@ function renderRatesEditor() {
   container.innerHTML = entries
     .map(
       ([code, val]) => `
-      <div class="flex items-center gap-2 text-xs">
-        <span class="w-16 font-bold text-gray-700">${escapeHTML(code)}</span>
-        <span class="text-gray-400">1 ${escapeHTML(code)} =</span>
-        <input type="number" min="0.000001" max="100000" step="any" data-rate-code="${escapeHTML(code)}" value="${escapeHTML(val)}" aria-label="${escapeHTML(code)} 汇率" class="min-w-0 flex-1 px-2.5 py-1.5 rounded-lg border border-gray-300 bg-white/80" />
-        <span class="text-gray-500">CNY</span>
+      <div class="flex items-center gap-2 text-xs bg-slate-50/80 dark:bg-slate-800/50 px-3 py-1.5 rounded-xl border border-slate-200/70 dark:border-slate-700/70">
+        <span class="w-14 font-mono font-bold text-slate-700 dark:text-slate-200">${escapeHTML(code)}</span>
+        <span class="text-slate-400">1 ${escapeHTML(code)} =</span>
+        <input type="number" min="0.000001" max="100000" step="any" data-rate-code="${escapeHTML(code)}" value="${escapeHTML(val)}" aria-label="${escapeHTML(code)} 汇率" class="input-field min-w-0 flex-1 px-2.5 py-1 rounded-lg font-mono text-slate-900 dark:text-white" />
+        <span class="text-slate-500 dark:text-slate-400 font-mono">CNY</span>
       </div>`,
     )
     .join("");

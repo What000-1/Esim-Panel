@@ -44,11 +44,37 @@ const costs = (
 const css = (
   await postcss([
     tailwindcss({
+      darkMode: "class",
       content: [
         { raw: html, extension: "html" },
         { raw: frontend, extension: "js" },
       ],
-      theme: { extend: {} },
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: [
+              "Inter",
+              "-apple-system",
+              "BlinkMacSystemFont",
+              '"PingFang SC"',
+              '"HarmonyOS Sans SC"',
+              '"Microsoft YaHei UI"',
+              "system-ui",
+              "sans-serif",
+            ],
+            mono: [
+              '"JetBrains Mono"',
+              '"SF Mono"',
+              '"Cascadia Mono"',
+              "ui-monospace",
+              "SFMono-Regular",
+              "Menlo",
+              "Consolas",
+              "monospace",
+            ],
+          },
+        },
+      },
       plugins: [],
     }),
   ]).process(

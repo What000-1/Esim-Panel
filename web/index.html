@@ -14,23 +14,44 @@
     <script defer src="/crypto-js.js"></script>
     <script defer src="/app.js"></script>
   </head>
-  <body class="text-gray-800 font-sans p-4 md:p-8 relative">
+  <body
+    class="text-slate-800 dark:text-slate-100 font-sans p-3 sm:p-5 md:p-8 relative selection:bg-blue-500/20 selection:text-blue-700 dark:selection:text-blue-300"
+  >
     <!-- 登录界面 (默认显示，未授权时拦截) -->
     <div
       id="login-container"
-      class="max-w-md mx-auto glass-panel rounded-3xl p-8 md:p-10 mt-16 md:mt-32 text-center transition-all"
+      class="max-w-md mx-auto glass-panel rounded-3xl p-7 sm:p-10 mt-12 sm:mt-24 text-center transition-all relative overflow-hidden"
     >
       <div
-        class="w-20 h-20 bg-white/50 rounded-full flex items-center justify-center mx-auto mb-6 shadow-sm"
+        class="absolute inset-x-0 top-0 h-1.5 bg-gradient-to-r from-blue-600 via-indigo-500 to-sky-400"
+      ></div>
+      <button
+        type="button"
+        onclick="toggleTheme()"
+        aria-label="切换深浅色主题"
+        title="切换深浅色主题"
+        class="theme-toggle-btn absolute top-4 right-4 w-9 h-9 rounded-xl bg-slate-100/80 dark:bg-slate-800/80 hover:bg-slate-200/80 dark:hover:bg-slate-700 text-slate-500 dark:text-slate-300 flex items-center justify-center transition-colors border border-slate-200/70 dark:border-slate-700"
       >
-        <i class="fa-solid fa-shield text-4xl text-blue-600"></i>
+        <i class="fa-solid fa-moon text-sm"></i>
+      </button>
+
+      <div
+        class="w-16 h-16 rounded-2xl bg-gradient-to-br from-blue-600 to-indigo-600 text-white flex items-center justify-center mx-auto mb-5 shadow-lg shadow-blue-600/25 ring-4 ring-blue-500/10"
+      >
+        <i class="fa-solid fa-shield-halved text-2xl"></i>
       </div>
-      <h2 class="text-3xl font-extrabold text-gray-900 mb-2">安全验证</h2>
-      <p class="text-gray-600 mb-8 text-sm font-medium">
-        为保护您的卡片资产，请获取验证码登录。
+      <h2
+        class="text-2xl sm:text-3xl font-extrabold text-slate-900 dark:text-white tracking-tight mb-2"
+      >
+        安全验证
+      </h2>
+      <p
+        class="text-slate-500 dark:text-slate-400 mb-7 text-sm leading-relaxed"
+      >
+        通过 Telegram 一次性动态验证码登录，守护您的海外号卡资产。
       </p>
 
-      <div class="mb-6 relative">
+      <div class="mb-5 relative">
         <input
           type="text"
           id="authCode"
@@ -40,24 +61,24 @@
           aria-label="登录验证码"
           placeholder="输入 6 位数验证码"
           maxlength="6"
-          class="w-full px-4 py-4 rounded-xl border border-gray-300/50 text-center text-2xl tracking-[0.5em] font-mono focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white/70 shadow-inner placeholder-gray-400 placeholder:tracking-normal placeholder:text-base"
+          class="input-field w-full px-4 py-4 rounded-2xl text-center text-2xl tracking-[0.45em] font-mono tabular-nums text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 placeholder:tracking-normal placeholder:text-sm placeholder:font-sans"
         />
       </div>
 
-      <div class="flex flex-col gap-4 mt-8">
+      <div class="flex flex-col gap-3 mt-6">
         <button
           id="loginBtn"
           onclick="verifyCode()"
-          class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3.5 px-4 rounded-xl shadow-lg transition-colors flex items-center justify-center gap-2"
+          class="w-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-semibold py-3.5 px-4 rounded-xl shadow-md shadow-blue-600/20 transition-all flex items-center justify-center gap-2 text-sm"
         >
           <i class="fa-solid fa-arrow-right-to-bracket"></i> 登录面板
         </button>
         <button
           id="sendCodeBtn"
           onclick="sendAuthCode()"
-          class="w-full bg-white/60 hover:bg-white/80 text-blue-700 font-bold py-3.5 px-4 rounded-xl border border-blue-200/50 transition-colors flex items-center justify-center gap-2"
+          class="w-full bg-slate-50/90 dark:bg-slate-800/80 hover:bg-blue-50/80 dark:hover:bg-slate-700/80 text-blue-600 dark:text-sky-400 font-semibold py-3.5 px-4 rounded-xl border border-slate-200/90 dark:border-slate-700 transition-colors flex items-center justify-center gap-2 text-sm"
         >
-          <i class="fa-brands fa-telegram text-xl"></i> 向 TG 机器人获取验证码
+          <i class="fa-brands fa-telegram text-lg"></i> 向 TG 机器人获取验证码
         </button>
       </div>
     </div>
@@ -65,42 +86,63 @@
     <!-- 主界面容器 (默认隐藏，登录成功后显示) -->
     <div
       id="main-container"
-      class="max-w-6xl mx-auto glass-panel rounded-3xl p-6 md:p-10 mt-4 md:mt-8 hidden"
+      class="max-w-6xl mx-auto glass-panel rounded-3xl p-4 sm:p-6 md:p-8 mt-2 md:mt-4 hidden"
     >
-      <!-- 头部信息 -->
+      <!-- 顶部品牌与主操作栏 -->
       <div
-        class="flex flex-col md:flex-row justify-between items-center mb-10 border-b border-white/50 pb-6 gap-4"
+        class="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-5 pb-5 border-b border-slate-200/70 dark:border-slate-700/70 gap-4"
       >
-        <div>
-          <h1
-            class="text-3xl md:text-4xl font-extrabold text-gray-900 tracking-tight flex items-center gap-3"
+        <div class="flex items-start sm:items-center gap-3.5">
+          <div
+            class="w-12 h-12 rounded-2xl bg-gradient-to-br from-blue-600 via-indigo-600 to-sky-500 text-white flex items-center justify-center shadow-lg shadow-blue-600/20 flex-shrink-0 ring-4 ring-blue-500/10"
           >
-            <i class="fa-solid fa-sim-card text-blue-600"></i>
-            eSIM 保号看板
-          </h1>
-          <p class="text-gray-700 mt-2 font-medium">
-            自动监控卡片有效期，到期前触发 Telegram 提醒。
-          </p>
+            <i class="fa-solid fa-sim-card text-xl"></i>
+          </div>
+          <div>
+            <div class="flex flex-wrap items-center gap-2.5">
+              <h1
+                class="text-2xl sm:text-3xl font-extrabold text-slate-900 dark:text-white tracking-tight"
+              >
+                eSIM 保号看板
+              </h1>
+              <span
+                class="inline-flex items-center gap-1.5 text-xs bg-slate-100/90 dark:bg-slate-800/90 text-slate-600 dark:text-slate-300 px-2.5 py-1 rounded-full font-medium border border-slate-200/80 dark:border-slate-700"
+              >
+                <i
+                  class="fa-regular fa-calendar text-blue-600 dark:text-sky-400 text-[11px]"
+                ></i>
+                <span>今日：</span>
+                <span
+                  id="current-date"
+                  class="text-slate-800 dark:text-slate-100 font-semibold tabular-nums"
+                  >...</span
+                >
+              </span>
+            </div>
+            <p
+              class="text-slate-500 dark:text-slate-400 text-xs sm:text-sm mt-1"
+            >
+              自动追踪卡片保号周期、续期支出与 Telegram 到期推送提醒
+            </p>
+          </div>
         </div>
-        <div class="flex gap-3 items-center flex-wrap justify-center">
-          <span
-            class="text-sm bg-white/50 px-4 py-2 rounded-full font-semibold shadow-sm hidden md:inline-block"
-          >
-            今日：<span id="current-date" class="text-blue-700">...</span>
-          </span>
+
+        <div
+          class="flex gap-2 items-center flex-wrap w-full lg:w-auto justify-start lg:justify-end"
+        >
           <button
             onclick="openModal()"
-            class="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-full font-bold shadow-lg transition-colors flex items-center gap-2"
+            class="h-10 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white px-4 rounded-xl font-semibold text-sm shadow-md shadow-blue-600/20 transition-all flex items-center gap-2"
           >
-            <i class="fa-solid fa-plus"></i> 添加号码
+            <i class="fa-solid fa-plus text-xs"></i> 添加号码
           </button>
           <button
             onclick="toggleBatchMode()"
             id="batchModeBtn"
             aria-label="批量管理"
-            class="bg-white/60 hover:bg-white/80 text-gray-700 px-4 py-2.5 rounded-full font-bold shadow-sm transition-colors flex items-center gap-2 border border-gray-200/50"
+            class="h-10 bg-white/80 dark:bg-slate-800/80 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 px-3.5 rounded-xl font-semibold text-sm transition-colors flex items-center gap-2 border border-slate-200/90 dark:border-slate-700 shadow-sm"
           >
-            <i class="fa-solid fa-list-check"></i>
+            <i class="fa-solid fa-list-check text-xs"></i>
             <span class="hidden sm:inline">批量管理</span>
           </button>
           <div id="backupControls" class="relative inline-block">
@@ -110,198 +152,261 @@
               aria-expanded="false"
               aria-controls="backupMenu"
               aria-label="备份与恢复"
-              class="bg-indigo-50 hover:bg-indigo-100 text-indigo-600 px-4 py-2.5 rounded-full font-bold shadow-sm transition-colors flex items-center gap-2 border border-indigo-200"
+              class="h-10 bg-white/80 dark:bg-slate-800/80 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 px-3.5 rounded-xl font-semibold text-sm transition-colors flex items-center gap-2 border border-slate-200/90 dark:border-slate-700 shadow-sm"
             >
-              <i class="fa-solid fa-cloud"></i>
+              <i
+                class="fa-solid fa-cloud text-indigo-500 dark:text-indigo-400 text-xs"
+              ></i>
               <span class="hidden sm:inline">备份与恢复</span>
+              <i
+                class="fa-solid fa-chevron-down text-[10px] text-slate-400"
+              ></i>
             </button>
             <div
               id="backupMenu"
-              class="hidden absolute right-0 mt-2 w-36 bg-white rounded-xl shadow-lg border border-gray-100 transition-all z-50"
+              class="hidden absolute right-0 mt-2 w-44 bg-white dark:bg-slate-800 rounded-2xl shadow-xl border border-slate-200/90 dark:border-slate-700 p-1.5 transition-all z-50"
             >
               <button
                 onclick="openExportModal()"
-                class="w-full text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-indigo-50 hover:text-indigo-600 rounded-t-xl flex items-center gap-2"
+                class="w-full text-left px-3 py-2 text-sm font-medium text-slate-700 dark:text-slate-200 hover:bg-indigo-50 dark:hover:bg-slate-700/80 hover:text-indigo-600 dark:hover:text-indigo-300 rounded-xl flex items-center gap-2.5 transition-colors"
               >
-                <i class="fa-solid fa-file-export w-4 text-center"></i> 导出备份
+                <span
+                  class="w-6 h-6 rounded-lg bg-indigo-50 dark:bg-indigo-950/70 text-indigo-600 dark:text-indigo-400 flex items-center justify-center text-xs"
+                >
+                  <i class="fa-solid fa-file-export"></i>
+                </span>
+                导出备份
               </button>
               <button
                 onclick="openImportModal()"
-                class="w-full text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-indigo-50 hover:text-indigo-600 rounded-b-xl flex items-center gap-2"
+                class="w-full text-left px-3 py-2 text-sm font-medium text-slate-700 dark:text-slate-200 hover:bg-indigo-50 dark:hover:bg-slate-700/80 hover:text-indigo-600 dark:hover:text-indigo-300 rounded-xl flex items-center gap-2.5 transition-colors mt-0.5"
               >
-                <i class="fa-solid fa-file-import w-4 text-center"></i> 导入备份
+                <span
+                  class="w-6 h-6 rounded-lg bg-sky-50 dark:bg-sky-950/70 text-sky-600 dark:text-sky-400 flex items-center justify-center text-xs"
+                >
+                  <i class="fa-solid fa-file-import"></i>
+                </span>
+                导入备份
               </button>
             </div>
           </div>
           <button
-            onclick="logout()"
-            class="bg-red-50 hover:bg-red-100 text-red-600 px-4 py-2.5 rounded-full font-bold shadow-sm transition-colors flex items-center gap-2 border border-red-200"
-            title="退出登录"
+            type="button"
+            id="themeToggleBtn"
+            onclick="toggleTheme()"
+            aria-label="切换深浅色主题"
+            title="切换深浅色主题"
+            class="theme-toggle-btn h-10 w-10 bg-white/80 dark:bg-slate-800/80 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 rounded-xl flex items-center justify-center transition-colors border border-slate-200/90 dark:border-slate-700 shadow-sm"
           >
-            <i class="fa-solid fa-right-from-bracket"></i>
+            <i class="fa-solid fa-moon text-sm"></i>
+          </button>
+          <button
+            onclick="logout()"
+            class="h-10 w-10 bg-white/80 dark:bg-slate-800/80 hover:bg-rose-50 dark:hover:bg-rose-950/50 text-slate-500 dark:text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 rounded-xl transition-colors flex items-center justify-center border border-slate-200/90 dark:border-slate-700 hover:border-rose-200 dark:hover:border-rose-800 shadow-sm"
+            title="退出登录"
+            aria-label="退出登录"
+          >
+            <i class="fa-solid fa-right-from-bracket text-sm"></i>
           </button>
         </div>
       </div>
 
-      <div class="mb-4 flex flex-wrap items-center gap-3 text-sm">
-        <button
-          onclick="fetchEsimData()"
-          class="rounded-lg bg-white/70 px-3 py-2"
-        >
-          刷新
-        </button>
-        <p id="service-status" role="status" aria-live="polite"></p>
-        <button
-          id="quarantineBtn"
-          onclick="openQuarantineModal()"
-          class="hidden rounded-lg bg-amber-100 px-3 py-2"
-        >
-          处理需修正记录
-        </button>
-        <button
-          id="retryNotificationsBtn"
-          onclick="retryNotifications()"
-          class="hidden rounded-lg bg-amber-100 px-3 py-2"
-        >
-          重试失败提醒
-        </button>
-        <button
-          id="telegramButtonsBtn"
-          onclick="toggleTelegramButtons()"
-          class="hidden rounded-lg bg-white/70 px-3 py-2"
-          title="在 Telegram 提醒消息下显示续期按钮"
-        >
-          <i class="fa-brands fa-telegram mr-1"></i>
-          <span id="telegramButtonsLabel">启用 TG 按钮续期</span>
-        </button>
-        <button
-          id="notifySettingsBtn"
-          onclick="openNotifyModal()"
-          class="rounded-lg bg-white/70 px-3 py-2"
-          title="配置提醒频率与测试 Telegram 推送"
-        >
-          <i class="fa-solid fa-bell mr-1"></i> 通知与测试
-        </button>
-      </div>
-      <!-- 状态统计 -->
+      <!-- 系统与 Telegram 快捷工具条 -->
       <div
-        class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-4"
+        class="toolbar-surface rounded-2xl px-3.5 py-2.5 mb-5 flex flex-wrap items-center justify-between gap-2 text-xs"
+      >
+        <div class="flex flex-wrap items-center gap-2">
+          <button
+            onclick="fetchEsimData()"
+            class="inline-flex items-center gap-1.5 rounded-xl bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-semibold px-3 py-1.5 border border-slate-200/80 dark:border-slate-700 transition-colors shadow-sm"
+          >
+            <i class="fa-solid fa-rotate text-slate-400"></i> 刷新
+          </button>
+          <button
+            id="notifySettingsBtn"
+            onclick="openNotifyModal()"
+            class="inline-flex items-center gap-1.5 rounded-xl bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-semibold px-3 py-1.5 border border-slate-200/80 dark:border-slate-700 transition-colors shadow-sm"
+            title="配置提醒频率与测试 Telegram 推送"
+          >
+            <i class="fa-solid fa-bell text-blue-500 dark:text-blue-400"></i>
+            通知与测试
+          </button>
+          <button
+            id="telegramButtonsBtn"
+            onclick="toggleTelegramButtons()"
+            class="hidden inline-flex items-center gap-1.5 rounded-xl bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-semibold px-3 py-1.5 border border-slate-200/80 dark:border-slate-700 transition-colors shadow-sm"
+            title="在 Telegram 提醒消息下显示续期按钮"
+          >
+            <i class="fa-brands fa-telegram text-sky-500 text-sm"></i>
+            <span
+              id="telegramButtonsDot"
+              class="w-1.5 h-1.5 rounded-full bg-slate-300 dark:bg-slate-600"
+            ></span>
+            <span id="telegramButtonsLabel">启用 TG 按钮续期</span>
+          </button>
+        </div>
+
+        <div class="flex flex-wrap items-center gap-2">
+          <p
+            id="service-status"
+            role="status"
+            aria-live="polite"
+            class="empty:hidden text-amber-700 dark:text-amber-300 bg-amber-50/90 dark:bg-amber-950/50 border border-amber-200/70 dark:border-amber-800/60 px-2.5 py-1 rounded-lg font-medium"
+          ></p>
+          <button
+            id="quarantineBtn"
+            onclick="openQuarantineModal()"
+            class="hidden inline-flex items-center gap-1.5 rounded-xl bg-amber-100 hover:bg-amber-200 dark:bg-amber-950/80 dark:hover:bg-amber-900 text-amber-800 dark:text-amber-200 font-semibold px-3 py-1.5 border border-amber-300/70 dark:border-amber-700 transition-colors"
+          >
+            <i class="fa-solid fa-wrench"></i> 处理需修正记录
+          </button>
+          <button
+            id="retryNotificationsBtn"
+            onclick="retryNotifications()"
+            class="hidden inline-flex items-center gap-1.5 rounded-xl bg-rose-100 hover:bg-rose-200 dark:bg-rose-950/80 dark:hover:bg-rose-900 text-rose-800 dark:text-rose-200 font-semibold px-3 py-1.5 border border-rose-300/70 dark:border-rose-700 transition-colors"
+          >
+            <i class="fa-solid fa-paper-plane"></i> 重试失败提醒
+          </button>
+        </div>
+      </div>
+
+      <!-- 状态统计 KPI -->
+      <div
+        class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-5"
         id="stats-container"
       >
         <!-- JS 动态注入 -->
       </div>
+
+      <!-- 成本概览条 -->
       <div
         id="cost-summary"
-        class="hidden mb-4 rounded-xl bg-white/60 border border-white/60 px-4 py-2.5 text-xs text-gray-700 flex flex-wrap items-center gap-x-4 gap-y-1"
+        class="hidden mb-5 rounded-2xl toolbar-surface px-4 py-3 text-xs text-slate-700 dark:text-slate-200 flex flex-wrap items-center gap-x-4 gap-y-2"
       ></div>
-      <div
-        id="filter-bar"
-        class="mb-4 flex flex-wrap items-center gap-2 text-xs"
-      >
-        <div id="status-filter-container" class="flex flex-wrap gap-1.5"></div>
-        <div id="tag-filter-container" class="flex flex-wrap gap-1.5"></div>
-      </div>
 
-      <!-- 搜索与排序栏 -->
-      <div
-        class="flex flex-col sm:flex-row gap-3 mb-6 items-stretch sm:items-center"
-      >
-        <!-- 搜索框 -->
-        <div class="relative flex-1">
-          <i
-            class="fa-solid fa-magnifying-glass absolute left-4 top-1/2 -translate-y-1/2 text-gray-400"
-          ></i>
-          <input
-            type="text"
-            id="searchInput"
-            aria-label="搜索名称、号码、账号或标签"
-            placeholder="搜索名称、号码、账号、标签或备注..."
-            oninput="debouncedFilter()"
-            class="w-full pl-11 pr-4 py-2.5 rounded-xl border border-gray-300/50 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white/70 shadow-sm text-sm font-medium placeholder-gray-400"
-          />
+      <!-- 统一搜索、排序与状态/标签筛选面板 -->
+      <div class="toolbar-surface rounded-2xl p-3.5 mb-6 space-y-3">
+        <div
+          class="flex flex-col md:flex-row gap-3 items-stretch md:items-center"
+        >
+          <!-- 搜索框 -->
+          <div class="relative flex-1">
+            <i
+              class="fa-solid fa-magnifying-glass absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 text-sm pointer-events-none"
+            ></i>
+            <input
+              type="text"
+              id="searchInput"
+              aria-label="搜索名称、号码、账号或标签"
+              placeholder="搜索名称、号码、品牌、账号、标签或备注..."
+              oninput="debouncedFilter()"
+              class="input-field w-full pl-10 pr-4 py-2.5 rounded-xl text-sm font-medium text-slate-800 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500"
+            />
+          </div>
+          <!-- 分段排序按钮组 -->
+          <div
+            class="inline-flex p-1 rounded-xl bg-slate-200/60 dark:bg-slate-900/70 gap-1 flex-shrink-0 flex-wrap"
+          >
+            <button
+              onclick="setSort('remainDays')"
+              id="sort-remainDays"
+              class="sort-btn active text-xs px-3 py-1.5 rounded-lg font-semibold transition-all flex items-center gap-1.5"
+            >
+              <i class="fa-solid fa-hourglass-half text-[11px]"></i> 剩余天数
+              <span class="sort-dir font-mono">↑</span>
+            </button>
+            <button
+              onclick="setSort('name')"
+              id="sort-name"
+              class="sort-btn text-xs px-3 py-1.5 rounded-lg font-semibold transition-all flex items-center gap-1.5"
+            >
+              <i class="fa-solid fa-arrow-down-a-z text-[11px]"></i> 名称
+              <span class="sort-dir font-mono"></span>
+            </button>
+            <button
+              onclick="setSort('addTime')"
+              id="sort-addTime"
+              class="sort-btn text-xs px-3 py-1.5 rounded-lg font-semibold transition-all flex items-center gap-1.5"
+            >
+              <i class="fa-solid fa-clock-rotate-left text-[11px]"></i> 添加时间
+              <span class="sort-dir font-mono"></span>
+            </button>
+          </div>
         </div>
-        <!-- 排序按钮组 -->
-        <div class="flex gap-2 flex-shrink-0 flex-wrap">
-          <button
-            onclick="setSort('remainDays')"
-            id="sort-remainDays"
-            class="sort-btn active text-xs px-3 py-2 rounded-lg border border-gray-200/50 bg-white/50 font-semibold transition-all hover:bg-blue-50 flex items-center gap-1"
-          >
-            <i class="fa-solid fa-hourglass-half"></i> 剩余天数
-            <span class="sort-dir">↑</span>
-          </button>
-          <button
-            onclick="setSort('name')"
-            id="sort-name"
-            class="sort-btn text-xs px-3 py-2 rounded-lg border border-gray-200/50 bg-white/50 font-semibold transition-all hover:bg-blue-50 flex items-center gap-1"
-          >
-            <i class="fa-solid fa-font"></i> 名称 <span class="sort-dir"></span>
-          </button>
-          <button
-            onclick="setSort('addTime')"
-            id="sort-addTime"
-            class="sort-btn text-xs px-3 py-2 rounded-lg border border-gray-200/50 bg-white/50 font-semibold transition-all hover:bg-blue-50 flex items-center gap-1"
-          >
-            <i class="fa-solid fa-clock-rotate-left"></i> 添加时间
-            <span class="sort-dir"></span>
-          </button>
+
+        <!-- 状态与标签筛选胶囊 -->
+        <div
+          id="filter-bar"
+          class="flex flex-wrap items-center gap-2 pt-1 text-xs"
+        >
+          <div
+            id="status-filter-container"
+            class="flex flex-wrap gap-1.5"
+          ></div>
+          <div id="tag-filter-container" class="flex flex-wrap gap-1.5"></div>
         </div>
       </div>
 
       <!-- 卡片列表容器 -->
       <div
-        class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6"
+        class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5"
         id="esim-container"
       >
         <div
-          class="col-span-full text-center py-10 text-gray-700 font-medium text-lg"
+          class="col-span-full text-center py-14 text-slate-500 dark:text-slate-400 font-medium text-base"
           id="loading-text"
         >
-          <i class="fa-solid fa-spinner fa-spin mr-2"></i> 正在读取数据...
+          <i class="fa-solid fa-circle-notch fa-spin mr-2 text-blue-500"></i>
+          正在同步卡片资产...
         </div>
       </div>
     </div>
 
-    <!-- 批量操作底部栏 -->
+    <!-- 批量操作悬浮底栏 -->
     <div id="batchBar" class="batch-bar" hidden>
-      <div class="max-w-6xl mx-auto px-4 py-3">
+      <div class="max-w-3xl mx-auto px-4 pb-5 pt-2">
         <div
-          class="glass-panel rounded-2xl px-6 py-4 flex flex-col sm:flex-row items-center justify-between gap-3"
+          class="modal-surface rounded-2xl px-5 py-3.5 flex flex-col sm:flex-row items-center justify-between gap-3"
         >
           <div class="flex items-center gap-4">
             <label
-              class="flex items-center gap-2 cursor-pointer text-sm font-semibold text-gray-700"
+              class="flex items-center gap-2 cursor-pointer text-sm font-semibold text-slate-700 dark:text-slate-200 select-none"
             >
               <input
                 type="checkbox"
                 id="selectAllCheckbox"
                 onchange="toggleSelectAll(this.checked)"
-                class="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                class="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
               />
-              全选
+              全选当前列表
             </label>
-            <span class="text-sm text-gray-600 font-medium"
+            <span
+              class="text-xs bg-blue-50 dark:bg-blue-950/70 text-slate-600 dark:text-slate-300 px-2.5 py-1 rounded-full font-medium border border-blue-200/60 dark:border-blue-800/60"
               >已选
-              <span id="selectedCount" class="text-blue-600 font-bold">0</span>
+              <span
+                id="selectedCount"
+                class="text-blue-600 dark:text-blue-400 font-bold tabular-nums"
+                >0</span
+              >
               项</span
             >
           </div>
-          <div class="flex gap-3">
+          <div class="flex gap-2.5 flex-wrap justify-center">
             <button
               onclick="batchRenew()"
-              class="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2 rounded-xl font-bold shadow-md transition-colors flex items-center gap-2 text-sm"
+              class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-xl font-semibold shadow-sm transition-colors flex items-center gap-1.5 text-xs sm:text-sm"
             >
               <i class="fa-solid fa-rotate-right"></i> 批量续期
             </button>
             <button
               onclick="batchDelete()"
-              class="bg-red-500 hover:bg-red-600 text-white px-5 py-2 rounded-xl font-bold shadow-md transition-colors flex items-center gap-2 text-sm"
+              class="bg-rose-600 hover:bg-rose-700 text-white px-4 py-2 rounded-xl font-semibold shadow-sm transition-colors flex items-center gap-1.5 text-xs sm:text-sm"
             >
               <i class="fa-solid fa-trash-can"></i> 批量删除
             </button>
             <button
               onclick="toggleBatchMode()"
-              class="bg-white/70 hover:bg-white text-gray-600 px-4 py-2 rounded-xl font-bold shadow-sm transition-colors flex items-center gap-2 text-sm border border-gray-200/60"
+              class="bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 px-3.5 py-2 rounded-xl font-semibold transition-colors flex items-center gap-1.5 text-xs sm:text-sm border border-slate-200 dark:border-slate-700"
             >
               <i class="fa-solid fa-xmark"></i> 取消
             </button>
@@ -316,40 +421,48 @@
       role="dialog"
       aria-modal="true"
       aria-label="导出加密备份"
-      class="fixed inset-0 bg-black/50 z-50 hidden flex items-center justify-center p-4"
+      class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4"
     >
       <div
-        class="glass-card w-full max-w-sm rounded-2xl p-6 shadow-2xl relative transition-all duration-300 transform scale-95 opacity-0"
+        class="glass-card modal-surface w-full max-w-sm rounded-3xl p-6 relative transition-all duration-200 transform scale-95 opacity-0"
         id="exportModalContent"
       >
         <button
           aria-label="关闭对话框"
           onclick="closeExportModal()"
-          class="absolute top-4 right-4 text-gray-500 hover:text-red-500 text-xl"
+          class="absolute top-4 right-4 w-8 h-8 rounded-full flex items-center justify-center text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
         >
           <i class="fa-solid fa-xmark"></i>
         </button>
         <h3
-          class="text-xl font-bold text-gray-900 mb-4 flex items-center gap-2"
+          class="text-lg font-bold text-slate-900 dark:text-white mb-2 flex items-center gap-2.5"
         >
-          <i class="fa-solid fa-shield text-indigo-600"></i> 加密导出
+          <span
+            class="w-8 h-8 rounded-xl bg-indigo-50 dark:bg-indigo-950/70 text-indigo-600 dark:text-indigo-400 flex items-center justify-center text-sm"
+          >
+            <i class="fa-solid fa-shield-halved"></i>
+          </span>
+          加密导出备份
         </h3>
-        <p class="text-sm text-gray-600 mb-4">
-          请设置一个密码，导出的备份文件必须输入此密码才能打开或导入。
+        <p
+          class="text-xs text-slate-500 dark:text-slate-400 mb-5 leading-relaxed"
+        >
+          请设置加密密码。备份在本地浏览器经 AES
+          加密生成，恢复时需输入相同密码。
         </p>
-        <div class="mb-6">
+        <div class="mb-5">
           <input
             type="password"
             id="exportPassword"
             aria-label="备份加密密码"
-            placeholder="设置加密密码"
-            class="w-full px-4 py-3 rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white/80"
+            placeholder="设置备份加密密码"
+            class="input-field w-full px-4 py-3 rounded-xl text-sm text-slate-900 dark:text-white placeholder-slate-400"
           />
         </div>
         <button
           onclick="exportData()"
           id="exportBtn"
-          class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-4 rounded-xl shadow-md transition-colors flex items-center justify-center gap-2"
+          class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-3 px-4 rounded-xl shadow-md shadow-indigo-600/20 transition-colors flex items-center justify-center gap-2 text-sm"
         >
           <i class="fa-solid fa-download"></i> 下载加密备份
         </button>
@@ -362,35 +475,42 @@
       role="dialog"
       aria-modal="true"
       aria-label="导入备份"
-      class="fixed inset-0 bg-black/50 z-50 hidden flex items-center justify-center p-4"
+      class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4"
     >
       <div
-        class="glass-card w-full max-w-md rounded-2xl p-6 shadow-2xl relative transition-all duration-300 transform scale-95 opacity-0"
+        class="glass-card modal-surface w-full max-w-md rounded-3xl p-6 relative transition-all duration-200 transform scale-95 opacity-0"
         id="importModalContent"
       >
         <button
           aria-label="关闭对话框"
           onclick="closeImportModal()"
-          class="absolute top-4 right-4 text-gray-500 hover:text-red-500 text-xl"
+          class="absolute top-4 right-4 w-8 h-8 rounded-full flex items-center justify-center text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
         >
           <i class="fa-solid fa-xmark"></i>
         </button>
         <h3
-          class="text-xl font-bold text-gray-900 mb-4 flex items-center gap-2"
+          class="text-lg font-bold text-slate-900 dark:text-white mb-2 flex items-center gap-2.5"
         >
-          <i class="fa-solid fa-file-import text-indigo-600"></i> 导入备份
+          <span
+            class="w-8 h-8 rounded-xl bg-sky-50 dark:bg-sky-950/70 text-sky-600 dark:text-sky-400 flex items-center justify-center text-sm"
+          >
+            <i class="fa-solid fa-file-import"></i>
+          </span>
+          导入加密备份
         </h3>
-        <p class="text-sm text-gray-600 mb-4">
-          请选择之前导出的加密 JSON 备份文件，并输入当时的密码。
+        <p
+          class="text-xs text-slate-500 dark:text-slate-400 mb-4 leading-relaxed"
+        >
+          选择导出的加密 JSON 备份文件，并输入导出时设置的解密密码。
         </p>
 
-        <div class="mb-4">
+        <div class="mb-3.5">
           <input
             type="file"
             id="importFile"
             aria-label="加密备份文件"
             accept=".json"
-            class="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 cursor-pointer"
+            class="block w-full text-xs text-slate-500 dark:text-slate-400 file:mr-3 file:py-2 file:px-3.5 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-indigo-50 dark:file:bg-indigo-950/80 file:text-indigo-700 dark:file:text-indigo-300 hover:file:bg-indigo-100 cursor-pointer border border-dashed border-slate-300 dark:border-slate-700 rounded-xl p-2"
           />
         </div>
         <div class="mb-4">
@@ -399,41 +519,44 @@
             id="importPassword"
             aria-label="备份解密密码"
             placeholder="输入解密密码"
-            class="w-full px-4 py-3 rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white/80"
+            class="input-field w-full px-4 py-3 rounded-xl text-sm text-slate-900 dark:text-white placeholder-slate-400"
           />
         </div>
-        <div class="mb-6">
-          <label class="block text-gray-700 text-sm font-bold mb-2"
-            >遇到重复数据时（ID相同）：</label
+        <div
+          class="mb-5 rounded-2xl bg-slate-50/90 dark:bg-slate-800/60 p-3.5 border border-slate-200/80 dark:border-slate-700/80 space-y-2"
+        >
+          <label
+            class="block text-slate-700 dark:text-slate-200 text-xs font-bold"
+            >遇到重复记录时（ID 相同）：</label
           >
-          <div class="flex gap-4">
-            <label class="flex items-center gap-2 cursor-pointer text-sm">
-              <input
-                type="radio"
-                name="importMode"
-                value="merge"
-                checked
-                class="w-4 h-4 text-indigo-600 focus:ring-indigo-500"
-              />
-              覆盖同ID记录并追加新记录 (合并)
-            </label>
-          </div>
-          <div class="flex gap-4 mt-2">
-            <label class="flex items-center gap-2 cursor-pointer text-sm">
-              <input
-                type="radio"
-                name="importMode"
-                value="overwrite"
-                class="w-4 h-4 text-indigo-600 focus:ring-indigo-500"
-              />
-              清空当前所有数据，完全替换为备份
-            </label>
-          </div>
+          <label
+            class="flex items-center gap-2.5 cursor-pointer text-xs text-slate-700 dark:text-slate-300"
+          >
+            <input
+              type="radio"
+              name="importMode"
+              value="merge"
+              checked
+              class="w-4 h-4 text-indigo-600 focus:ring-indigo-500"
+            />
+            覆盖同 ID 记录并追加新记录（推荐合并）
+          </label>
+          <label
+            class="flex items-center gap-2.5 cursor-pointer text-xs text-slate-700 dark:text-slate-300"
+          >
+            <input
+              type="radio"
+              name="importMode"
+              value="overwrite"
+              class="w-4 h-4 text-indigo-600 focus:ring-indigo-500"
+            />
+            清空当前全部数据，完全替换为备份内容
+          </label>
         </div>
         <button
           onclick="importData()"
           id="importBtn"
-          class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-4 rounded-xl shadow-md transition-colors flex items-center justify-center gap-2"
+          class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-3 px-4 rounded-xl shadow-md shadow-indigo-600/20 transition-colors flex items-center justify-center gap-2 text-sm"
         >
           <i class="fa-solid fa-cloud-arrow-up"></i> 解密并导入
         </button>
@@ -446,168 +569,221 @@
       role="dialog"
       aria-modal="true"
       aria-label="添加或编辑卡片"
-      class="fixed inset-0 bg-black/50 z-50 hidden flex items-center justify-center p-4"
+      class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 hidden flex items-center justify-center p-3 sm:p-4"
     >
-      <!-- 增加了 max-h-screen 和 overflow-y-auto 以防止屏幕较小时内容被遮挡 -->
       <div
-        class="glass-card w-full max-w-md rounded-2xl p-6 shadow-2xl relative transition-all duration-300 transform scale-95 opacity-0 max-h-[95vh] overflow-y-auto"
+        class="glass-card modal-surface w-full max-w-lg rounded-3xl p-5 sm:p-6 relative transition-all duration-200 transform scale-95 opacity-0 max-h-[92vh] overflow-y-auto"
         id="modalContent"
       >
         <button
           aria-label="关闭对话框"
           onclick="closeModal()"
-          class="absolute top-4 right-4 text-gray-500 hover:text-red-500 text-xl"
+          class="absolute top-4 right-4 w-8 h-8 rounded-full flex items-center justify-center text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
         >
           <i class="fa-solid fa-xmark"></i>
         </button>
         <h3
-          class="text-2xl font-bold text-gray-900 mb-6 flex items-center gap-2"
+          class="text-xl font-bold text-slate-900 dark:text-white mb-5 flex items-center gap-2.5 pr-8"
           id="modalTitle"
         >
           <i class="fa-solid fa-file-circle-plus text-blue-600"></i> 新增 eSIM
         </h3>
 
-        <form id="addForm" onsubmit="submitForm(event)">
-          <div class="mb-4">
-            <label
-              for="simBrandSearch"
-              class="block text-gray-700 text-sm font-bold mb-2"
-              >搜索电话卡品牌</label
-            >
-            <input
-              type="search"
-              id="simBrandSearch"
-              autocomplete="off"
-              placeholder="输入品牌或地区，例如 Simyo、荷兰"
-              aria-controls="simBrand"
-              class="w-full px-4 py-2 rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white/80 mb-3"
-            />
-            <label
-              for="simBrand"
-              class="block text-gray-700 text-sm font-bold mb-2"
-              >海外电话卡 (选填)</label
-            >
-            <select
-              id="simBrand"
-              aria-label="海外电话卡品牌"
-              class="w-full px-4 py-2 rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white/80"
-            >
-              <option value="">自定义 / 未列出</option>
-            </select>
+        <form id="addForm" onsubmit="submitForm(event)" class="space-y-4">
+          <!-- 品牌快速预填区 -->
+          <div
+            class="rounded-2xl bg-slate-50/90 dark:bg-slate-800/60 p-3.5 border border-slate-200/80 dark:border-slate-700/80"
+          >
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label
+                  for="simBrandSearch"
+                  class="block text-slate-700 dark:text-slate-200 text-xs font-bold mb-1.5"
+                  >搜索电话卡品牌</label
+                >
+                <input
+                  type="search"
+                  id="simBrandSearch"
+                  autocomplete="off"
+                  placeholder="如 Simyo、giffgaff、荷兰"
+                  aria-controls="simBrand"
+                  class="input-field w-full px-3.5 py-2 rounded-xl text-sm text-slate-900 dark:text-white placeholder-slate-400"
+                />
+              </div>
+              <div>
+                <label
+                  for="simBrand"
+                  class="block text-slate-700 dark:text-slate-200 text-xs font-bold mb-1.5"
+                  >海外电话卡目录 (选填)</label
+                >
+                <select
+                  id="simBrand"
+                  aria-label="海外电话卡品牌"
+                  class="input-field w-full px-3.5 py-2 rounded-xl text-sm text-slate-900 dark:text-white"
+                >
+                  <option value="">自定义 / 未列出</option>
+                </select>
+              </div>
+            </div>
             <p
-              class="text-xs text-gray-500 mt-1"
+              class="text-xs text-blue-600 dark:text-sky-400 mt-1.5 empty:hidden font-medium"
               id="simBrandSearchStatus"
               role="status"
             ></p>
-            <p class="text-xs text-gray-500 mt-1" id="simBrandHint">
-              选择后填入名称、保号周期和规则；可自行调整。
-            </p>
-            <a
-              id="simBrandSource"
-              class="hidden text-xs text-blue-600 hover:underline mt-1"
-              target="_blank"
-              rel="noopener noreferrer"
-              >查看 BankNav 原条目</a
-            >
-          </div>
-          <div class="mb-4">
-            <label class="block text-gray-700 text-sm font-bold mb-2"
-              >卡片名称 (必填)</label
-            >
-            <input
-              type="text"
-              id="simName"
-              maxlength="100"
-              aria-label="卡片名称"
-              required
-              placeholder="例如：KnowRoaming"
-              class="w-full px-4 py-2 rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white/80"
-            />
-          </div>
-          <div class="mb-4">
-            <label class="block text-gray-700 text-sm font-bold mb-2"
-              >手机号码带区号 (选填)</label
-            >
-            <input
-              type="text"
-              id="simNumber"
-              maxlength="50"
-              aria-label="手机号码"
-              placeholder="例如：+1 234 567 8900"
-              class="w-full px-4 py-2 rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white/80"
-            />
-          </div>
-          <div class="mb-4">
-            <label
-              id="simStartDateLabel"
-              for="simStartDate"
-              class="block text-gray-700 text-sm font-bold mb-2"
-              >开始日期 (必填)</label
-            >
-            <input
-              type="date"
-              id="simStartDate"
-              min="1900-01-01"
-              max="9999-12-31"
-              aria-label="开始日期"
-              required
-              class="w-full px-4 py-2 rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white/80"
-              onchange="autoCalcExpireDate(event)"
-            />
-            <p id="simStartDateHint" class="text-xs text-gray-400 mt-1">
-              默认为今天，可自行修改
-            </p>
-          </div>
-          <div class="mb-4" id="simCycleGroup">
-            <label class="block text-gray-700 text-sm font-bold mb-2"
-              >保号周期 (必填)</label
-            >
-            <div class="flex gap-2">
-              <input
-                type="number"
-                id="simCycle"
-                min="1"
-                max="36500"
-                step="1"
-                aria-label="保号周期"
-                required
-                placeholder="例如：180"
-                class="min-w-0 flex-1 px-4 py-2 rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white/80"
-                oninput="autoCalcExpireDate(event)"
-              />
-              <select
-                id="simCycleUnit"
-                aria-label="周期单位"
-                onchange="autoCalcExpireDate(event)"
-                class="px-3 py-2 rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white/80 font-semibold text-sm"
+            <div class="flex flex-wrap items-center justify-between gap-2 mt-2">
+              <p
+                class="text-xs text-slate-500 dark:text-slate-400 leading-relaxed"
+                id="simBrandHint"
               >
-                <option value="day">天</option>
-                <option value="month">月</option>
-                <option value="quarter">季度</option>
-                <option value="year">年</option>
-              </select>
+                选择后填入名称、保号周期和规则；可自行调整。
+              </p>
+              <a
+                id="simBrandSource"
+                class="hidden text-xs font-semibold text-blue-600 dark:text-sky-400 hover:underline flex-shrink-0"
+                target="_blank"
+                rel="noopener noreferrer"
+                >查看 BankNav 原条目 ↗</a
+              >
             </div>
           </div>
-          <div class="mb-4" id="simReminderGroup">
-            <label class="block text-gray-700 text-sm font-bold mb-2"
-              >提前提醒天数 (选填)</label
-            >
-            <input
-              type="number"
-              id="simReminderDays"
-              min="0"
-              max="3650"
-              step="1"
-              aria-label="提前提醒天数"
-              placeholder="默认 15 天"
-              class="w-full px-4 py-2 rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white/80"
-            />
-            <p class="text-xs text-gray-400 mt-1">
-              不填默认 15 天；填 0 仅在到期当天及过期后提醒
-            </p>
+
+          <!-- 核心识别信息 -->
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+            <div>
+              <label
+                class="block text-slate-700 dark:text-slate-200 text-xs font-bold mb-1.5"
+                >卡片名称 (必填)</label
+              >
+              <input
+                type="text"
+                id="simName"
+                maxlength="100"
+                aria-label="卡片名称"
+                required
+                placeholder="例如：giffgaff 主力卡"
+                class="input-field w-full px-3.5 py-2 rounded-xl text-sm text-slate-900 dark:text-white placeholder-slate-400"
+              />
+            </div>
+            <div>
+              <label
+                class="block text-slate-700 dark:text-slate-200 text-xs font-bold mb-1.5"
+                >手机号码带区号 (选填)</label
+              >
+              <input
+                type="text"
+                id="simNumber"
+                maxlength="50"
+                aria-label="手机号码"
+                placeholder="例如：+44 7123 456789"
+                class="input-field w-full px-3.5 py-2 rounded-xl text-sm font-mono text-slate-900 dark:text-white placeholder-slate-400 placeholder:font-sans"
+              />
+            </div>
           </div>
-          <div class="mb-4">
-            <label class="block text-gray-700 text-sm font-bold mb-2"
+
+          <!-- 日期与周期设置 -->
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+            <div>
+              <label
+                id="simStartDateLabel"
+                for="simStartDate"
+                class="block text-slate-700 dark:text-slate-200 text-xs font-bold mb-1.5"
+                >开始日期 (必填)</label
+              >
+              <input
+                type="date"
+                id="simStartDate"
+                min="1900-01-01"
+                max="9999-12-31"
+                aria-label="开始日期"
+                required
+                class="input-field w-full px-3.5 py-2 rounded-xl text-sm font-mono text-slate-900 dark:text-white"
+                onchange="autoCalcExpireDate(event)"
+              />
+              <p
+                id="simStartDateHint"
+                class="text-[11px] text-slate-400 dark:text-slate-500 mt-1"
+              >
+                默认为今天，可自行修改
+              </p>
+            </div>
+            <div id="simCycleGroup">
+              <label
+                class="block text-slate-700 dark:text-slate-200 text-xs font-bold mb-1.5"
+                >保号周期 (必填)</label
+              >
+              <div class="flex gap-2">
+                <input
+                  type="number"
+                  id="simCycle"
+                  min="1"
+                  max="36500"
+                  step="1"
+                  aria-label="保号周期"
+                  required
+                  placeholder="例如：180"
+                  class="input-field min-w-0 flex-1 px-3.5 py-2 rounded-xl text-sm font-mono text-slate-900 dark:text-white placeholder-slate-400 placeholder:font-sans"
+                  oninput="autoCalcExpireDate(event)"
+                />
+                <select
+                  id="simCycleUnit"
+                  aria-label="周期单位"
+                  onchange="autoCalcExpireDate(event)"
+                  class="input-field px-3 py-2 rounded-xl font-semibold text-sm text-slate-800 dark:text-slate-100"
+                >
+                  <option value="day">天</option>
+                  <option value="month">月</option>
+                  <option value="quarter">季度</option>
+                  <option value="year">年</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+            <div id="simExpireGroup">
+              <label
+                class="block text-slate-700 dark:text-slate-200 text-xs font-bold mb-1.5"
+                >本次到期日 (必填)</label
+              >
+              <input
+                type="date"
+                id="simExpire"
+                min="1900-01-01"
+                max="9999-12-31"
+                aria-label="本次到期日"
+                required
+                class="input-field w-full px-3.5 py-2 rounded-xl text-sm font-mono text-slate-900 dark:text-white"
+              />
+              <p
+                class="text-[11px] text-slate-400 dark:text-slate-500 mt-1 empty:hidden"
+                id="expireHint"
+              ></p>
+            </div>
+            <div id="simReminderGroup">
+              <label
+                class="block text-slate-700 dark:text-slate-200 text-xs font-bold mb-1.5"
+                >提前提醒天数 (选填)</label
+              >
+              <input
+                type="number"
+                id="simReminderDays"
+                min="0"
+                max="3650"
+                step="1"
+                aria-label="提前提醒天数"
+                placeholder="默认 15 天"
+                class="input-field w-full px-3.5 py-2 rounded-xl text-sm font-mono text-slate-900 dark:text-white placeholder-slate-400 placeholder:font-sans"
+              />
+              <p class="text-[11px] text-slate-400 dark:text-slate-500 mt-1">
+                填 0 仅在到期日及过期后提醒
+              </p>
+            </div>
+          </div>
+
+          <!-- 备注、载体与费用 -->
+          <div>
+            <label
+              class="block text-slate-700 dark:text-slate-200 text-xs font-bold mb-1.5"
               >备注 / 保号要求 (选填)</label
             >
             <input
@@ -615,39 +791,46 @@
               id="simRemark"
               maxlength="500"
               aria-label="备注与保号要求"
-              placeholder="例如：发送短信到某号码 或 充值5元"
-              class="w-full px-4 py-2 rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white/80"
+              placeholder="例如：每 180 天发一条短信或产生余额变动"
+              class="input-field w-full px-3.5 py-2 rounded-xl text-sm text-slate-900 dark:text-white placeholder-slate-400"
             />
           </div>
-          <div class="mb-4">
-            <label class="block text-gray-700 text-sm font-bold mb-2"
-              >账号 / 载体 (选填)</label
-            >
-            <input
-              type="text"
-              id="simAccount"
-              maxlength="120"
-              aria-label="账号或载体"
-              placeholder="例如：登录邮箱、App 账号或 iPhone / ESTK"
-              class="w-full px-4 py-2 rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white/80"
-            />
-          </div>
-          <div class="mb-4">
-            <label class="block text-gray-700 text-sm font-bold mb-2"
-              >分组标签 (选填，逗号分隔)</label
-            >
-            <input
-              type="text"
-              id="simTags"
-              maxlength="200"
-              aria-label="分组标签"
-              placeholder="例如：iPhone, 主力号"
-              class="w-full px-4 py-2 rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white/80"
-            />
-          </div>
-          <div class="mb-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
+
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
             <div>
-              <label class="block text-gray-700 text-sm font-bold mb-2"
+              <label
+                class="block text-slate-700 dark:text-slate-200 text-xs font-bold mb-1.5"
+                >账号 / 载体 (选填)</label
+              >
+              <input
+                type="text"
+                id="simAccount"
+                maxlength="120"
+                aria-label="账号或载体"
+                placeholder="如邮箱账号、iPhone / ESTK"
+                class="input-field w-full px-3.5 py-2 rounded-xl text-sm text-slate-900 dark:text-white placeholder-slate-400"
+              />
+            </div>
+            <div>
+              <label
+                class="block text-slate-700 dark:text-slate-200 text-xs font-bold mb-1.5"
+                >分组标签 (选填，逗号分隔)</label
+              >
+              <input
+                type="text"
+                id="simTags"
+                maxlength="200"
+                aria-label="分组标签"
+                placeholder="例如：iPhone, 主力号"
+                class="input-field w-full px-3.5 py-2 rounded-xl text-sm text-slate-900 dark:text-white placeholder-slate-400"
+              />
+            </div>
+          </div>
+
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+            <div>
+              <label
+                class="block text-slate-700 dark:text-slate-200 text-xs font-bold mb-1.5"
                 >当前余额 (选填)</label
               >
               <input
@@ -656,11 +839,12 @@
                 maxlength="40"
                 aria-label="当前余额"
                 placeholder="例如：£10.50"
-                class="w-full px-4 py-2 rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white/80"
+                class="input-field w-full px-3.5 py-2 rounded-xl text-sm text-slate-900 dark:text-white placeholder-slate-400"
               />
             </div>
             <div>
-              <label class="block text-gray-700 text-sm font-bold mb-2"
+              <label
+                class="block text-slate-700 dark:text-slate-200 text-xs font-bold mb-1.5"
                 >单次保号费用 (选填)</label
               >
               <div class="flex gap-1.5">
@@ -671,8 +855,8 @@
                   max="1000000"
                   step="any"
                   aria-label="单次保号费用"
-                  placeholder="例如：0.1"
-                  class="min-w-0 flex-1 px-3 py-2 rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white/80"
+                  placeholder="金额"
+                  class="input-field min-w-0 flex-1 px-3 py-2 rounded-xl text-sm font-mono text-slate-900 dark:text-white placeholder-slate-400 placeholder:font-sans"
                 />
                 <input
                   type="text"
@@ -680,117 +864,112 @@
                   maxlength="10"
                   aria-label="费用币种"
                   placeholder="币种"
-                  class="w-20 px-2.5 py-2 rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white/80 uppercase"
+                  class="input-field w-20 px-2.5 py-2 rounded-xl text-sm font-mono uppercase text-slate-900 dark:text-white placeholder-slate-400 placeholder:font-sans"
                 />
               </div>
             </div>
           </div>
-          <div class="mb-4" id="simExpireGroup">
-            <label class="block text-gray-700 text-sm font-bold mb-2"
-              >本次到期日 (必填)</label
+
+          <!-- 状态开关组 -->
+          <div class="space-y-2.5 pt-1">
+            <div
+              id="simAutoRenewGroup"
+              class="flex items-center justify-between bg-blue-50/60 dark:bg-blue-950/30 rounded-xl px-3.5 py-2.5 border border-blue-200/60 dark:border-blue-800/50"
             >
-            <input
-              type="date"
-              id="simExpire"
-              min="1900-01-01"
-              max="9999-12-31"
-              aria-label="本次到期日"
-              required
-              class="w-full px-4 py-2 rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white/80"
-            />
-            <p class="text-xs text-gray-400 mt-1" id="expireHint"></p>
-          </div>
-          <div
-            id="simAutoRenewGroup"
-            class="mb-4 flex items-center justify-between bg-gradient-to-r from-blue-50/80 to-indigo-50/80 rounded-xl px-4 py-3.5 border border-blue-100/60"
-          >
-            <div class="flex items-center gap-2">
-              <i class="fa-solid fa-arrows-rotate text-blue-500"></i>
-              <div>
-                <span class="text-sm font-bold text-gray-700"
-                  >到期后自动延期</span
-                >
-                <p class="text-[11px] text-gray-400 mt-0.5">
-                  仅更新看板日期，请确认已完成实际保号操作
-                </p>
+              <div class="flex items-center gap-2.5">
+                <i class="fa-solid fa-arrows-rotate text-blue-500 text-sm"></i>
+                <div>
+                  <span
+                    class="text-xs font-bold text-slate-800 dark:text-slate-100 block"
+                    >到期后自动延期</span
+                  >
+                  <p class="text-[11px] text-slate-500 dark:text-slate-400">
+                    仅自动顺延看板日期，请确认已完成实际扣费/保号
+                  </p>
+                </div>
               </div>
+              <label
+                class="relative inline-flex items-center cursor-pointer flex-shrink-0 ml-3"
+              >
+                <input
+                  type="checkbox"
+                  id="simAutoRenew"
+                  aria-label="到期后自动延期"
+                  class="sr-only peer"
+                />
+                <div
+                  class="w-10 h-5.5 bg-slate-300 dark:bg-slate-700 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-blue-400 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-600 h-5 w-9"
+                ></div>
+              </label>
             </div>
-            <label
-              class="relative inline-flex items-center cursor-pointer flex-shrink-0 ml-3"
+
+            <div
+              id="simMuteGroup"
+              class="flex items-center justify-between bg-amber-50/60 dark:bg-amber-950/30 rounded-xl px-3.5 py-2.5 border border-amber-200/60 dark:border-amber-800/50"
             >
-              <input
-                type="checkbox"
-                id="simAutoRenew"
-                aria-label="到期后自动延期"
-                class="sr-only peer"
-              />
-              <div
-                class="w-11 h-6 bg-gray-300 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-blue-400 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600 shadow-inner"
-              ></div>
-            </label>
-          </div>
-          <div
-            id="simMuteGroup"
-            class="mb-4 flex items-center justify-between bg-amber-50/70 rounded-xl px-4 py-3 border border-amber-100/70"
-          >
-            <div class="flex items-center gap-2">
-              <i class="fa-solid fa-bell-slash text-amber-500"></i>
-              <div>
-                <span class="text-sm font-bold text-gray-700"
-                  >暂停此卡到期提醒</span
-                >
-                <p class="text-[11px] text-gray-400 mt-0.5">
-                  不发送 Telegram 到期通知，不影响自动延期
-                </p>
+              <div class="flex items-center gap-2.5">
+                <i class="fa-solid fa-bell-slash text-amber-500 text-sm"></i>
+                <div>
+                  <span
+                    class="text-xs font-bold text-slate-800 dark:text-slate-100 block"
+                    >暂停此卡到期提醒</span
+                  >
+                  <p class="text-[11px] text-slate-500 dark:text-slate-400">
+                    不发送 Telegram 通知，不影响自动延期
+                  </p>
+                </div>
               </div>
+              <label
+                class="relative inline-flex items-center cursor-pointer flex-shrink-0 ml-3"
+              >
+                <input
+                  type="checkbox"
+                  id="simMuteReminders"
+                  aria-label="暂停此卡到期提醒"
+                  class="sr-only peer"
+                />
+                <div
+                  class="bg-slate-300 dark:bg-slate-700 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-amber-400 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-amber-500 h-5 w-9"
+                ></div>
+              </label>
             </div>
-            <label
-              class="relative inline-flex items-center cursor-pointer flex-shrink-0 ml-3"
+
+            <div
+              id="simArchivedGroup"
+              class="flex items-center justify-between bg-slate-100/80 dark:bg-slate-800/60 rounded-xl px-3.5 py-2.5 border border-slate-200/80 dark:border-slate-700/80"
             >
-              <input
-                type="checkbox"
-                id="simMuteReminders"
-                aria-label="暂停此卡到期提醒"
-                class="sr-only peer"
-              />
-              <div
-                class="w-11 h-6 bg-gray-300 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-amber-400 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-amber-500 shadow-inner"
-              ></div>
-            </label>
-          </div>
-          <div
-            id="simArchivedGroup"
-            class="mb-6 flex items-center justify-between bg-gray-50 rounded-xl px-4 py-3 border border-gray-200/70"
-          >
-            <div class="flex items-center gap-2">
-              <i class="fa-solid fa-box-archive text-gray-500"></i>
-              <div>
-                <span class="text-sm font-bold text-gray-700"
-                  >归档 / 已停用</span
-                >
-                <p class="text-[11px] text-gray-400 mt-0.5">
-                  保留历史记录，不参与统计、提醒与自动延期
-                </p>
+              <div class="flex items-center gap-2.5">
+                <i class="fa-solid fa-box-archive text-slate-500 text-sm"></i>
+                <div>
+                  <span
+                    class="text-xs font-bold text-slate-800 dark:text-slate-100 block"
+                    >归档 / 已停用</span
+                  >
+                  <p class="text-[11px] text-slate-500 dark:text-slate-400">
+                    保留历史记录，不参与统计、提醒与自动延期
+                  </p>
+                </div>
               </div>
+              <label
+                class="relative inline-flex items-center cursor-pointer flex-shrink-0 ml-3"
+              >
+                <input
+                  type="checkbox"
+                  id="simArchived"
+                  aria-label="归档停用"
+                  class="sr-only peer"
+                />
+                <div
+                  class="bg-slate-300 dark:bg-slate-700 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-slate-400 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-slate-600 h-5 w-9"
+                ></div>
+              </label>
             </div>
-            <label
-              class="relative inline-flex items-center cursor-pointer flex-shrink-0 ml-3"
-            >
-              <input
-                type="checkbox"
-                id="simArchived"
-                aria-label="归档停用"
-                class="sr-only peer"
-              />
-              <div
-                class="w-11 h-6 bg-gray-300 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-gray-400 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-gray-600 shadow-inner"
-              ></div>
-            </label>
           </div>
+
           <button
             type="submit"
             id="submitBtn"
-            class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-4 rounded-xl shadow-md transition-colors"
+            class="w-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-semibold py-3 px-4 rounded-xl shadow-md shadow-blue-600/20 transition-all text-sm mt-2"
           >
             保存并监控
           </button>
@@ -804,27 +983,37 @@
       role="dialog"
       aria-modal="true"
       aria-label="选择续期方式"
-      class="fixed inset-0 bg-black/50 z-50 hidden flex items-center justify-center p-4"
+      class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4"
     >
       <div
-        class="glass-card w-full max-w-sm rounded-2xl p-6 shadow-2xl relative transition-all duration-300 transform scale-95 opacity-0"
+        class="glass-card modal-surface w-full max-w-sm rounded-3xl p-6 relative transition-all duration-200 transform scale-95 opacity-0"
         id="renewModalContent"
       >
         <button
           aria-label="关闭对话框"
           onclick="closeRenewModal()"
-          class="absolute top-4 right-4 text-gray-500 hover:text-red-500 text-xl"
+          class="absolute top-4 right-4 w-8 h-8 rounded-full flex items-center justify-center text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
         >
           <i class="fa-solid fa-xmark"></i>
         </button>
         <h3
-          class="text-xl font-bold text-gray-900 mb-2 flex items-center gap-2"
+          class="text-lg font-bold text-slate-900 dark:text-white mb-1 flex items-center gap-2.5"
         >
-          <i class="fa-solid fa-rotate-right text-blue-600"></i> 选择续期方式
+          <span
+            class="w-8 h-8 rounded-xl bg-blue-50 dark:bg-blue-950/70 text-blue-600 dark:text-blue-400 flex items-center justify-center text-sm"
+          >
+            <i class="fa-solid fa-rotate-right"></i>
+          </span>
+          选择续期方式
         </h3>
-        <p class="text-sm text-gray-500 mb-5" id="renewSimInfo">卡片名称</p>
+        <p
+          class="text-xs text-slate-500 dark:text-slate-400 mb-4 font-medium"
+          id="renewSimInfo"
+        >
+          卡片名称
+        </p>
 
-        <div class="space-y-3 mb-4">
+        <div class="space-y-2.5 mb-4">
           <!-- 基于到期日 -->
           <label class="block cursor-pointer group">
             <input
@@ -836,22 +1025,23 @@
               class="sr-only peer"
             />
             <div
-              class="peer-checked:border-blue-500 peer-checked:bg-blue-50/80 border-2 border-gray-200 rounded-xl p-4 transition-all hover:border-blue-300"
+              class="peer-checked:border-blue-500 peer-checked:bg-blue-50/70 dark:peer-checked:bg-blue-950/40 border border-slate-200 dark:border-slate-700 rounded-2xl p-3.5 transition-all hover:border-blue-300 dark:hover:border-blue-700"
             >
               <div class="flex items-center justify-between mb-1">
-                <span class="font-bold text-gray-800 text-sm"
+                <span
+                  class="font-bold text-slate-800 dark:text-slate-100 text-sm"
                   >基于到期日续延</span
                 >
                 <span
-                  class="text-[10px] bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-bold"
+                  class="text-[10px] bg-emerald-100 dark:bg-emerald-950/80 text-emerald-700 dark:text-emerald-300 px-2 py-0.5 rounded-full font-bold"
                   >推荐</span
                 >
               </div>
-              <p class="text-xs text-gray-500">
-                到期日 + 周期 = 新到期日，不浪费剩余天数
+              <p class="text-xs text-slate-500 dark:text-slate-400">
+                原到期日 + 周期，不浪费剩余有效期
               </p>
               <p
-                class="text-xs text-blue-600 font-semibold mt-1.5"
+                class="text-xs text-blue-600 dark:text-sky-400 font-semibold font-mono mt-1.5"
                 id="renewPreviewExpiry"
               >
                 新到期日：计算中...
@@ -868,16 +1058,19 @@
               class="sr-only peer"
             />
             <div
-              class="peer-checked:border-blue-500 peer-checked:bg-blue-50/80 border-2 border-gray-200 rounded-xl p-4 transition-all hover:border-blue-300"
+              class="peer-checked:border-blue-500 peer-checked:bg-blue-50/70 dark:peer-checked:bg-blue-950/40 border border-slate-200 dark:border-slate-700 rounded-2xl p-3.5 transition-all hover:border-blue-300 dark:hover:border-blue-700"
             >
               <div class="flex items-center justify-between mb-1">
-                <span class="font-bold text-gray-800 text-sm"
+                <span
+                  class="font-bold text-slate-800 dark:text-slate-100 text-sm"
                   >基于今天续延</span
                 >
               </div>
-              <p class="text-xs text-gray-500">今天 + 周期 = 新到期日</p>
+              <p class="text-xs text-slate-500 dark:text-slate-400">
+                今天 + 周期，适合刚完成保号操作后重算
+              </p>
               <p
-                class="text-xs text-blue-600 font-semibold mt-1.5"
+                class="text-xs text-blue-600 dark:text-sky-400 font-semibold font-mono mt-1.5"
                 id="renewPreviewToday"
               >
                 新到期日：计算中...
@@ -888,11 +1081,12 @@
 
         <div
           id="renewBatchPreview"
-          class="hidden mb-4 max-h-36 overflow-y-auto rounded-xl border border-gray-200 bg-gray-50/80 p-3 text-xs space-y-1.5"
+          class="hidden mb-4 max-h-36 overflow-y-auto rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50/90 dark:bg-slate-800/60 p-3 text-xs space-y-1.5"
         ></div>
 
         <div id="renewCostBox" class="mb-5">
-          <label class="block text-gray-700 text-xs font-bold mb-1.5"
+          <label
+            class="block text-slate-700 dark:text-slate-200 text-xs font-bold mb-1.5"
             >本次保号费用（选填，记入续期记录）</label
           >
           <div class="flex gap-2">
@@ -904,7 +1098,7 @@
               step="any"
               aria-label="本次保号费用"
               placeholder="金额"
-              class="min-w-0 flex-1 px-3 py-2 rounded-xl border border-gray-300 text-sm bg-white/80"
+              class="input-field min-w-0 flex-1 px-3 py-2 rounded-xl text-sm font-mono text-slate-900 dark:text-white placeholder-slate-400 placeholder:font-sans"
             />
             <input
               type="text"
@@ -912,7 +1106,7 @@
               maxlength="10"
               aria-label="本次费用币种"
               placeholder="币种"
-              class="w-20 px-2.5 py-2 rounded-xl border border-gray-300 text-sm bg-white/80 uppercase"
+              class="input-field w-20 px-2.5 py-2 rounded-xl text-sm font-mono uppercase text-slate-900 dark:text-white placeholder-slate-400 placeholder:font-sans"
             />
           </div>
         </div>
@@ -920,7 +1114,7 @@
         <button
           id="confirmRenewBtn"
           onclick="confirmRenew()"
-          class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-4 rounded-xl shadow-md transition-colors flex items-center justify-center gap-2"
+          class="w-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-semibold py-3 px-4 rounded-xl shadow-md shadow-blue-600/20 transition-all flex items-center justify-center gap-2 text-sm"
         >
           <i class="fa-solid fa-check"></i> 确认续期
         </button>
@@ -933,26 +1127,29 @@
       role="dialog"
       aria-modal="true"
       aria-label="eSIM 续期记录"
-      class="fixed inset-0 bg-black/50 z-50 hidden flex items-center justify-center p-4"
+      class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4"
     >
       <div
-        class="glass-card w-full max-w-lg rounded-2xl p-6 shadow-2xl relative transition-all duration-300 transform scale-95 opacity-0 max-h-[90vh] overflow-y-auto"
+        class="glass-card modal-surface w-full max-w-lg rounded-3xl p-6 relative transition-all duration-200 transform scale-95 opacity-0 max-h-[90vh] overflow-y-auto"
       >
         <button
           aria-label="关闭续期记录"
           onclick="closeRenewalHistoryModal()"
-          class="absolute top-4 right-4 text-gray-500 hover:text-red-500 text-xl"
+          class="absolute top-4 right-4 w-8 h-8 rounded-full flex items-center justify-center text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
         >
           <i class="fa-solid fa-xmark"></i>
         </button>
         <h3
-          class="text-xl font-bold text-gray-900 mb-1 flex items-center gap-2 pr-8"
+          class="text-lg font-bold text-slate-900 dark:text-white mb-1 flex items-center gap-2 pr-8"
           id="renewalHistoryTitle"
         >
           <i class="fa-solid fa-clock-rotate-left text-violet-600"></i>
           续期记录
         </h3>
-        <p class="text-sm text-gray-500 mb-5" id="renewalHistorySummary">
+        <p
+          class="text-xs text-slate-500 dark:text-slate-400 mb-5"
+          id="renewalHistorySummary"
+        >
           尚无续期记录
         </p>
         <div id="renewalHistoryList" class="space-y-0"></div>
@@ -965,38 +1162,40 @@
       role="dialog"
       aria-modal="true"
       aria-label="待修正记录"
-      class="fixed inset-0 bg-black/50 z-50 hidden flex items-center justify-center p-4"
+      class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4"
     >
       <div
-        class="glass-card w-full max-w-xl rounded-2xl p-6 shadow-2xl relative transition-all duration-300 transform scale-95 opacity-0 max-h-[90vh] overflow-y-auto"
+        class="glass-card modal-surface w-full max-w-xl rounded-3xl p-6 relative transition-all duration-200 transform scale-95 opacity-0 max-h-[90vh] overflow-y-auto"
       >
         <button
           aria-label="关闭待修正记录"
           onclick="closeQuarantineModal()"
-          class="absolute top-4 right-4 text-gray-500 hover:text-red-500 text-xl"
+          class="absolute top-4 right-4 w-8 h-8 rounded-full flex items-center justify-center text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
         >
           <i class="fa-solid fa-xmark"></i>
         </button>
         <h3
-          class="text-xl font-bold text-gray-900 mb-2 flex items-center gap-2 pr-8"
+          class="text-lg font-bold text-slate-900 dark:text-white mb-2 flex items-center gap-2 pr-8"
         >
           <i class="fa-solid fa-triangle-exclamation text-amber-500"></i>
           待修正记录
         </h3>
-        <p class="text-xs text-gray-600 mb-4">
-          以下记录在旧版迁移或检查时未能通过校验，可填入表单修正后保存，或下载备份后清空提示。
+        <p
+          class="text-xs text-slate-500 dark:text-slate-400 mb-4 leading-relaxed"
+        >
+          以下记录在旧版迁移或检查时未通过校验，可一键填入表单修正后保存，或下载明文备份后清空提示。
         </p>
         <div id="quarantineList" class="space-y-3 mb-5"></div>
         <div class="flex flex-wrap gap-3">
           <button
             onclick="downloadQuarantine()"
-            class="flex-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold py-2.5 px-4 rounded-xl text-sm border border-indigo-200"
+            class="flex-1 bg-indigo-50 dark:bg-indigo-950/70 hover:bg-indigo-100 dark:hover:bg-indigo-900 text-indigo-700 dark:text-indigo-300 font-semibold py-2.5 px-4 rounded-xl text-xs sm:text-sm border border-indigo-200 dark:border-indigo-800 transition-colors"
           >
             <i class="fa-solid fa-download mr-1"></i> 下载明文 JSON
           </button>
           <button
             onclick="clearQuarantine()"
-            class="flex-1 bg-red-50 hover:bg-red-100 text-red-600 font-bold py-2.5 px-4 rounded-xl text-sm border border-red-200"
+            class="flex-1 bg-rose-50 dark:bg-rose-950/70 hover:bg-rose-100 dark:hover:bg-rose-900 text-rose-600 dark:text-rose-300 font-semibold py-2.5 px-4 rounded-xl text-xs sm:text-sm border border-rose-200 dark:border-rose-800 transition-colors"
           >
             <i class="fa-solid fa-trash-can mr-1"></i> 清空待修正记录
           </button>
@@ -1010,30 +1209,35 @@
       role="dialog"
       aria-modal="true"
       aria-label="通知设置与测试"
-      class="fixed inset-0 bg-black/50 z-50 hidden flex items-center justify-center p-4"
+      class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4"
     >
       <div
-        class="glass-card w-full max-w-md rounded-2xl p-6 shadow-2xl relative transition-all duration-300 transform scale-95 opacity-0 max-h-[90vh] overflow-y-auto"
+        class="glass-card modal-surface w-full max-w-md rounded-3xl p-6 relative transition-all duration-200 transform scale-95 opacity-0 max-h-[90vh] overflow-y-auto"
       >
         <button
           aria-label="关闭通知设置"
           onclick="closeNotifyModal()"
-          class="absolute top-4 right-4 text-gray-500 hover:text-red-500 text-xl"
+          class="absolute top-4 right-4 w-8 h-8 rounded-full flex items-center justify-center text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
         >
           <i class="fa-solid fa-xmark"></i>
         </button>
         <h3
-          class="text-xl font-bold text-gray-900 mb-4 flex items-center gap-2 pr-8"
+          class="text-lg font-bold text-slate-900 dark:text-white mb-4 flex items-center gap-2.5 pr-8"
         >
-          <i class="fa-solid fa-bell text-blue-600"></i>
+          <span
+            class="w-8 h-8 rounded-xl bg-blue-50 dark:bg-blue-950/70 text-blue-600 dark:text-blue-400 flex items-center justify-center text-sm"
+          >
+            <i class="fa-solid fa-bell"></i>
+          </span>
           通知设置与测试
         </h3>
-        <div class="space-y-3 mb-5">
-          <label class="block text-sm font-bold text-gray-700"
+        <div class="space-y-2.5 mb-5">
+          <label
+            class="block text-xs font-bold text-slate-700 dark:text-slate-200"
             >到期前提醒频率</label
           >
           <label
-            class="flex items-start gap-2.5 p-3 rounded-xl border border-gray-200 bg-white/70 cursor-pointer text-sm"
+            class="flex items-start gap-2.5 p-3.5 rounded-2xl border border-slate-200 dark:border-slate-700 bg-slate-50/70 dark:bg-slate-800/50 hover:border-blue-300 dark:hover:border-blue-700 cursor-pointer text-sm transition-colors"
           >
             <input
               type="radio"
@@ -1042,14 +1246,16 @@
               class="mt-1 text-blue-600"
             />
             <span>
-              <strong class="block text-gray-800">每天提醒</strong>
-              <span class="text-xs text-gray-500"
-                >进入提前提醒天数后每天发送一次，直到续期</span
+              <strong class="block text-slate-800 dark:text-slate-100 text-xs"
+                >每天提醒</strong
+              >
+              <span class="text-xs text-slate-500 dark:text-slate-400"
+                >进入提前提醒窗口后每天推送一次，直至完成续期</span
               >
             </span>
           </label>
           <label
-            class="flex items-start gap-2.5 p-3 rounded-xl border border-gray-200 bg-white/70 cursor-pointer text-sm"
+            class="flex items-start gap-2.5 p-3.5 rounded-2xl border border-slate-200 dark:border-slate-700 bg-slate-50/70 dark:bg-slate-800/50 hover:border-blue-300 dark:hover:border-blue-700 cursor-pointer text-sm transition-colors"
           >
             <input
               type="radio"
@@ -1058,43 +1264,61 @@
               class="mt-1 text-blue-600"
             />
             <span>
-              <strong class="block text-gray-800"
+              <strong class="block text-slate-800 dark:text-slate-100 text-xs"
                 >仅关键节点提醒（防刷屏）</strong
               >
-              <span class="text-xs text-gray-500"
-                >仅在提前提醒日及剩余 7、3、1、0 天推送（过期后仍每 7
+              <span class="text-xs text-slate-500 dark:text-slate-400"
+                >仅在提前提醒日及剩余 7、3、1、0 天推送（过期后每 7
                 天提醒）</span
               >
             </span>
           </label>
           <button
             onclick="saveNotifySettings()"
-            class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2.5 px-4 rounded-xl text-sm shadow-sm"
+            class="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2.5 px-4 rounded-xl text-sm shadow-sm transition-colors mt-1"
           >
             保存提醒频率
           </button>
         </div>
-        <div class="border-t border-gray-200/70 pt-4 space-y-2.5">
-          <p class="text-xs font-bold text-gray-600">即时推送验证</p>
+        <div
+          class="border-t border-slate-200/80 dark:border-slate-700/80 pt-4 space-y-2.5"
+        >
+          <p class="text-xs font-bold text-slate-700 dark:text-slate-200">
+            即时推送验证
+          </p>
           <div class="flex gap-2">
             <button
               onclick="sendTelegramTest('test')"
-              class="flex-1 bg-white/80 hover:bg-white text-gray-700 font-semibold py-2 px-3 rounded-xl border border-gray-200 text-xs"
+              class="flex-1 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-semibold py-2 px-3 rounded-xl border border-slate-200 dark:border-slate-700 text-xs transition-colors"
             >
               发送测试消息
             </button>
             <button
               onclick="sendTelegramTest('summary')"
-              class="flex-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-semibold py-2 px-3 rounded-xl border border-indigo-200 text-xs"
+              class="flex-1 bg-indigo-50 dark:bg-indigo-950/70 hover:bg-indigo-100 dark:hover:bg-indigo-900 text-indigo-700 dark:text-indigo-300 font-semibold py-2 px-3 rounded-xl border border-indigo-200 dark:border-indigo-800 text-xs transition-colors"
             >
               立即推送到期汇总
             </button>
           </div>
-          <p class="text-[11px] text-gray-500 leading-relaxed pt-1">
+          <p
+            class="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed pt-1"
+          >
             启用「TG 按钮续期」后，可在 Telegram 对机器人发送
-            <code>/due</code
-            >（即将到期并附续期按钮）、<code>/stats</code>（资产与年费统计）、<code>/list</code>（活跃卡片）或
-            <code>/search 关键词</code>。
+            <code
+              class="px-1 py-0.5 rounded bg-slate-100 dark:bg-slate-800 font-mono text-slate-700 dark:text-slate-300"
+              >/due</code
+            >（即将到期）、<code
+              class="px-1 py-0.5 rounded bg-slate-100 dark:bg-slate-800 font-mono text-slate-700 dark:text-slate-300"
+              >/stats</code
+            >（成本统计）、<code
+              class="px-1 py-0.5 rounded bg-slate-100 dark:bg-slate-800 font-mono text-slate-700 dark:text-slate-300"
+              >/list</code
+            >
+            或
+            <code
+              class="px-1 py-0.5 rounded bg-slate-100 dark:bg-slate-800 font-mono text-slate-700 dark:text-slate-300"
+              >/search 关键词</code
+            >。
           </p>
         </div>
       </div>
@@ -1106,27 +1330,37 @@
       role="dialog"
       aria-modal="true"
       aria-label="汇率折算设置"
-      class="fixed inset-0 bg-black/50 z-50 hidden flex items-center justify-center p-4"
+      class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4"
     >
       <div
-        class="glass-card w-full max-w-md rounded-2xl p-6 shadow-2xl relative transition-all duration-300 transform scale-95 opacity-0 max-h-[90vh] overflow-y-auto"
+        class="glass-card modal-surface w-full max-w-md rounded-3xl p-6 relative transition-all duration-200 transform scale-95 opacity-0 max-h-[90vh] overflow-y-auto"
       >
         <button
           aria-label="关闭汇率设置"
           onclick="closeRatesModal()"
-          class="absolute top-4 right-4 text-gray-500 hover:text-red-500 text-xl"
+          class="absolute top-4 right-4 w-8 h-8 rounded-full flex items-center justify-center text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
         >
           <i class="fa-solid fa-xmark"></i>
         </button>
         <h3
-          class="text-xl font-bold text-gray-900 mb-2 flex items-center gap-2 pr-8"
+          class="text-lg font-bold text-slate-900 dark:text-white mb-2 flex items-center gap-2.5 pr-8"
         >
-          <i class="fa-solid fa-coins text-amber-500"></i>
+          <span
+            class="w-8 h-8 rounded-xl bg-amber-50 dark:bg-amber-950/70 text-amber-500 flex items-center justify-center text-sm"
+          >
+            <i class="fa-solid fa-coins"></i>
+          </span>
           汇率折算设置（折合 CNY）
         </h3>
-        <p class="text-xs text-gray-600 mb-4">
+        <p
+          class="text-xs text-slate-500 dark:text-slate-400 mb-4 leading-relaxed"
+        >
           1 外币折合人民币（CNY）的参考汇率，用于面板成本总览与 TG
-          <code>/stats</code> 统计；可随时按实际汇率修改。
+          <code
+            class="px-1 py-0.5 rounded bg-slate-100 dark:bg-slate-800 font-mono"
+            >/stats</code
+          >
+          统计。
         </p>
         <div id="ratesList" class="space-y-2 mb-4"></div>
         <div class="flex gap-2 mb-5">
@@ -1135,8 +1369,8 @@
             id="newRateCode"
             maxlength="10"
             aria-label="新增币种代码"
-            placeholder="币种代码如 TRY"
-            class="w-28 px-3 py-2 rounded-xl border border-gray-300 text-xs bg-white/80 uppercase"
+            placeholder="币种如 TRY"
+            class="input-field w-28 px-3 py-2 rounded-xl text-xs font-mono uppercase text-slate-900 dark:text-white placeholder-slate-400 placeholder:font-sans"
           />
           <input
             type="number"
@@ -1146,28 +1380,28 @@
             step="any"
             aria-label="新增币种对人民币汇率"
             placeholder="1 外币 = ? CNY"
-            class="min-w-0 flex-1 px-3 py-2 rounded-xl border border-gray-300 text-xs bg-white/80"
+            class="input-field min-w-0 flex-1 px-3 py-2 rounded-xl text-xs font-mono text-slate-900 dark:text-white placeholder-slate-400 placeholder:font-sans"
           />
           <button
             type="button"
             onclick="addRateRow()"
-            class="bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-semibold px-3 py-2 rounded-xl border border-indigo-200 text-xs"
+            class="bg-indigo-50 dark:bg-indigo-950/70 hover:bg-indigo-100 dark:hover:bg-indigo-900 text-indigo-700 dark:text-indigo-300 font-semibold px-3.5 py-2 rounded-xl border border-indigo-200 dark:border-indigo-800 text-xs transition-colors"
           >
             添加
           </button>
         </div>
-        <div class="flex gap-2">
+        <div class="flex gap-2.5">
           <button
             type="button"
             onclick="resetDefaultRates()"
-            class="bg-white/80 hover:bg-white text-gray-700 font-semibold py-2.5 px-3 rounded-xl border border-gray-200 text-xs"
+            class="bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-semibold py-2.5 px-3.5 rounded-xl border border-slate-200 dark:border-slate-700 text-xs transition-colors"
           >
             恢复默认
           </button>
           <button
             type="button"
             onclick="saveRatesSettings()"
-            class="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-bold py-2.5 px-4 rounded-xl text-sm shadow-sm"
+            class="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2.5 px-4 rounded-xl text-sm shadow-sm transition-colors"
           >
             保存汇率设置
           </button>

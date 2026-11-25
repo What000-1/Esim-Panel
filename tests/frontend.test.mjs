@@ -1094,7 +1094,10 @@ test("batch delete keeps the rendered selection while search input is debounced"
   assert.equal(d.getElementById("selectedCount").textContent, "1");
 
   await w.batchDelete();
-  assert.deepEqual(f.store.cards().map((card) => card.id), ["b"]);
+  assert.deepEqual(
+    f.store.cards().map((card) => card.id),
+    ["b"],
+  );
 });
 
 test("select all during a pending search changes only the rendered checkboxes", async (t) => {
@@ -1151,7 +1154,9 @@ test("undo cannot remove a renewal that was not shown in the open history dialog
 });
 
 test("renaming a legacy card preserves its missing start date", async (t) => {
-  const { w, d, f } = await browserWithCards(t, [{ ...sample, startDate: null }]);
+  const { w, d, f } = await browserWithCards(t, [
+    { ...sample, startDate: null },
+  ]);
   w.openEditModal("one");
   const start = d.getElementById("simStartDate");
   const form = d.getElementById("addForm");
@@ -1167,4 +1172,17 @@ test("renaming a legacy card preserves its missing start date", async (t) => {
   w.openModal();
   assert.equal(start.required, true);
   assert.equal(start.value, todayString());
+});
+
+test("theme toggle switches dark mode class and persists preference", async (t) => {
+  const { w, d } = await browser(t);
+  const initialDark = d.documentElement.classList.contains("dark");
+  d.getElementById("themeToggleBtn").click();
+  assert.equal(d.documentElement.classList.contains("dark"), !initialDark);
+  assert.equal(
+    w.localStorage.getItem("esim_theme"),
+    !initialDark ? "dark" : "light",
+  );
+  d.getElementById("themeToggleBtn").click();
+  assert.equal(d.documentElement.classList.contains("dark"), initialDark);
 });

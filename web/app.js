@@ -1462,7 +1462,7 @@ function setStartDateField(startDate, isNew = false) {
 function openModal() {
   editingId = null;
   document.getElementById("modalTitle").innerHTML =
-    '<i class="fa-solid fa-file-circle-plus text-blue-600"></i> 新增 eSIM';
+    '<i class="fa-solid fa-circle-plus text-blue-600"></i> 新增 eSIM';
   document.getElementById("addForm").reset();
   document.getElementById("simBrandSearch").value = "";
   populatePhoneCards();
@@ -1736,7 +1736,7 @@ function renderStats() {
                 <p class="text-[11px] text-slate-400 dark:text-slate-500 mt-0.5">有效期充裕或免保号</p>
             </div>
             <div class="w-11 h-11 rounded-2xl bg-emerald-50 dark:bg-emerald-950/70 text-emerald-600 dark:text-emerald-400 border border-emerald-200/70 dark:border-emerald-800/60 flex items-center justify-center flex-shrink-0">
-                <i class="fa-solid fa-shield-halved text-lg"></i>
+                <i class="fa-solid fa-shield text-lg"></i>
             </div>
         </div>
         <div role="button" tabindex="0" data-status-filter="warning" class="glass-card cursor-pointer rounded-2xl p-4 sm:p-5 flex items-center justify-between relative overflow-hidden ${statusFilter === "warning" ? "ring-2 ring-blue-500" : ""}">

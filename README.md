@@ -15,6 +15,7 @@
 - 支持名称/号码搜索、批量续期与删除、加密备份的合并或覆盖导入。
 - 启用「TG 按钮续期」后，提醒消息下会出现「从到期日续期」「从今天续期」按钮，在 Telegram 中点一下即可续期，见[下文](#telegram-按钮续期)。
 - 手动续期、批量续期、TG 按钮续期和自动延期都会写入续期记录，记录操作时间、来源、计算方式以及新旧到期日；每张卡片保留最近 20 条。续期支出按该次记录的币种统计；未填写币种的费用单列为「未知币种」，不折算人民币。
+- 新增或编辑卡片时可选择默认保号费用币种；手动续期可单独选择本次币种，不会改变卡片默认值。下拉列表内置 [SIX ISO 4217 现行清单](https://www.six-group.com/en/products-services/financial-information/market-reference-data/data-standards.html)中的 176 个有效代码（不含 `XTS` 测试代码和 `XXX` 无币种代码，快照日期 2026-09-17），可按币种名称或代码搜索，也可填写自定义币种。没有参考汇率的费用仍按原币种记录和统计，可在「汇率设置」中手动添加人民币折算汇率。
 - 总览统计始终基于全部卡片；添加时间按 `createdAt` 排序。没有可靠添加时间的旧 UUID 记录排在最后并保留相对顺序。
 - 每个面板最多 500 张卡片；周期为 1–36500 的整数。名称最多 100 字、号码 50 字、备注 500 字。
 
@@ -168,6 +169,8 @@ npm run check
 | `expireDate`       | string / null  | 必须为真实日历日期；无需保号时为 null                      |
 | `cycle`            | integer / null | 正整数周期；无需保号时为 null                              |
 | `cycleUnit`        | string         | `day` / `month` / `quarter` / `year`                       |
+| `renewCost`        | number / null  | 选填的单次保号费用                                         |
+| `renewCurrency`    | string         | 默认保号费用币种；未指定时为空                             |
 | `reminderDays`     | integer        | 默认为 15，可为 0                                          |
 | `autoRenew`        | boolean        | 默认为 false                                               |
 | `createdAt`        | string / null  | 新增时由服务端写入；旧时间戳 ID 可恢复，否则保留 null      |
@@ -182,6 +185,7 @@ npm run check
 | `web/index.html`、`web/styles.css`           | 页面与样式                                 |
 | `web/app.js`、`web/flags.js`                 | 页面交互、备份与国旗显示                   |
 | `shared/phone-cards.js`                      | BankNav 电话卡品牌与保号规则静态目录       |
+| `shared/currencies.js`                       | ISO 4217 币种代码静态目录                   |
 | `shared/dates.js`                            | 前后端共享的日期规则                       |
 | `worker/entry.js`                            | HTTP 入口、静态资源、同源规则与 Cron 入口  |
 | `worker/store.js`                            | Durable Object、迁移、认证、事务与通知状态 |

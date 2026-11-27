@@ -892,7 +892,7 @@ async function submitForm(e) {
     account: document.getElementById("simAccount").value,
     balance: document.getElementById("simBalance").value,
     renewCost: renewCostRaw === "" ? null : Number(renewCostRaw),
-    renewCurrency: document.getElementById("simRenewCurrency").value.trim(),
+    renewCurrency: simCurrencyPicker.value,
     tags,
     startDate: document.getElementById("simStartDate").value || null,
     expireDate: document.getElementById("simExpire").value || null,
@@ -955,7 +955,7 @@ function openRenewModal(id) {
   document.getElementById("renewBatchPreview").classList.add("hidden");
   document.getElementById("renewCostBox").classList.remove("hidden");
   document.getElementById("renewCostInput").value = sim.renewCost ?? "";
-  document.getElementById("renewCurrencyInput").value = sim.renewCurrency || "";
+  renewalCurrencyPicker.reset(sim.renewCurrency ?? "");
   document.querySelector(
     'input[name="renewMode"][value="fromExpiry"]',
   ).checked = true;
@@ -1029,10 +1029,12 @@ async function confirmRenew() {
         target.revision,
       );
     } else {
-      const costRaw = document.getElementById("renewCostInput").value;
-      const currency = document
-        .getElementById("renewCurrencyInput")
-        .value.trim();
+      const costInput = document.getElementById("renewCostInput");
+      if (
+        !costInput.reportValidity() || !renewalCurrencyPicker.reportValidity()
+      )
+        return;
+      const costRaw = costInput.value;
       await mutate(
         WORKER_API_URL,
         "PUT",
@@ -1042,7 +1044,7 @@ async function confirmRenew() {
           ...(costRaw !== "" || target.renewCost != null
             ? {
                 renewCost: costRaw === "" ? null : Number(costRaw),
-                renewCurrency: currency,
+                renewCurrency: renewalCurrencyPicker.value,
               }
             : {}),
         },
@@ -1336,6 +1338,121 @@ function populatePhoneCards(
     : "";
 }
 
+// Older browser locale data may not yet name recently introduced ISO codes.
+const CURRENCY_NAME_FALLBACKS = {
+  SLE: ["塞拉利昂新利昂", "Sierra Leonean leone"],
+  VED: ["委内瑞拉主权玻利瓦尔", "Venezuelan sovereign bolívar"],
+  XAD: ["阿拉伯记账第纳尔", "Arab accounting dinar"],
+  XCG: ["加勒比盾", "Caribbean guilder"],
+  ZWG: ["津巴布韦金元", "Zimbabwe Gold"],
+};
+const CURRENCY_SEARCH_ALIASES = {
+  CNY: "RMB Renminbi",
+  HKD: "港币 港幣",
+  JPY: "日币 日幣 日元",
+  KRW: "韩币 韓幣",
+  USD: "美金",
+};
+const CUSTOM_CURRENCY_CHOICE = "__custom_currency__";
+
+function currencySearchKey(value) {
+  return value.normalize("NFKD").replace(/\p{M}/gu, "").toLowerCase();
+}
+
+function buildCurrencyChoices() {
+  const names = (locale) =>
+    typeof Intl.DisplayNames === "function"
+      ? new Intl.DisplayNames(locale, { type: "currency", fallback: "none" })
+      : null;
+  const zh = names("zh-CN");
+  const en = names("en");
+  return new Map(
+    CURRENCY_CODES.map((code) => {
+      const [zhFallback, enFallback] = CURRENCY_NAME_FALLBACKS[code] ?? [];
+      const zhName = zh?.of(code) ?? zhFallback;
+      const enName = en?.of(code) ?? enFallback;
+      const name = zhName || enName;
+      return [
+        code,
+        {
+          label: name ? `${code} · ${name}` : code,
+          keywords: currencySearchKey(
+            [code, zhName, enName, CURRENCY_SEARCH_ALIASES[code]].join(" "),
+          ),
+        },
+      ];
+    }),
+  );
+}
+
+function createCurrencyPicker(selectId, choices) {
+  const select = document.getElementById(selectId);
+  const picker = select.closest("[data-currency-picker]");
+  const search = picker.querySelector("[data-currency-search]");
+  const custom = picker.querySelector("[data-currency-custom]");
+  const status = picker.querySelector("[data-currency-status]");
+
+  function renderOptions(selected = select.value) {
+    const terms = currencySearchKey(search.value)
+      .trim()
+      .split(/\s+/)
+      .filter(Boolean);
+    const options = [new Option("未指定币种", "")];
+    let matches = 0;
+    let retained = false;
+    for (const [code, { label, keywords }] of choices) {
+      const matchesQuery = terms.every((term) => keywords.includes(term));
+      if (matchesQuery) matches++;
+      else if (code === selected) retained = true;
+      if (matchesQuery || code === selected)
+        options.push(new Option(label, code));
+    }
+    options.push(new Option("自定义币种…", CUSTOM_CURRENCY_CHOICE));
+    select.replaceChildren(...options);
+    select.value = selected;
+    status.textContent = !terms.length
+      ? ""
+      : matches
+        ? `找到 ${matches} 个币种${retained ? "，保留当前选择" : ""}`
+        : "没有匹配的币种，可选择「自定义币种」";
+  }
+
+  function updateCustomField() {
+    const useCustom = select.value === CUSTOM_CURRENCY_CHOICE;
+    custom.hidden = !useCustom;
+    custom.disabled = !useCustom;
+  }
+
+  search.addEventListener("input", () => renderOptions());
+  search.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" && !event.isComposing) {
+      event.preventDefault();
+      select.focus();
+    }
+  });
+  select.addEventListener("change", updateCustomField);
+
+  return {
+    reset(savedCurrency = "") {
+      search.value = "";
+      const saved = savedCurrency.trim();
+      const code = saved.toUpperCase();
+      const useCustom = !!saved && !choices.has(code);
+      custom.value = useCustom ? saved : "";
+      renderOptions(useCustom ? CUSTOM_CURRENCY_CHOICE : code);
+      updateCustomField();
+    },
+    get value() {
+      return select.value === CUSTOM_CURRENCY_CHOICE
+        ? custom.value.trim()
+        : select.value;
+    },
+    reportValidity() {
+      return custom.reportValidity();
+    },
+  };
+}
+
 function getTodayStr() {
   return todayString();
 }
@@ -1373,7 +1490,7 @@ function openModal() {
   document.getElementById("simTags").value = "";
   document.getElementById("simBalance").value = "";
   document.getElementById("simRenewCost").value = "";
-  document.getElementById("simRenewCurrency").value = "";
+  simCurrencyPicker.reset();
   document.getElementById("expireHint").innerHTML = "";
 
   showDialog("addModal");
@@ -1399,7 +1516,7 @@ function openEditModal(id) {
   document.getElementById("simTags").value = (sim.tags || []).join(", ");
   document.getElementById("simBalance").value = sim.balance || "";
   document.getElementById("simRenewCost").value = sim.renewCost ?? "";
-  document.getElementById("simRenewCurrency").value = sim.renewCurrency || "";
+  simCurrencyPicker.reset(sim.renewCurrency ?? "");
   setStartDateField(sim.startDate);
   document.getElementById("simCycle").value = sim.cycle ?? "";
   document.getElementById("simCycleUnit").value = sim.cycleUnit || "day";
@@ -1969,6 +2086,15 @@ async function toggleTelegramButtons() {
     alert(e.message);
   }
 }
+const currencyChoices = buildCurrencyChoices();
+const simCurrencyPicker = createCurrencyPicker(
+  "simRenewCurrency",
+  currencyChoices,
+);
+const renewalCurrencyPicker = createCurrencyPicker(
+  "renewCurrencyInput",
+  currencyChoices,
+);
 populatePhoneCards();
 document.getElementById("simBrandSearch").addEventListener("input", (event) => {
   populatePhoneCards(event.target.value);

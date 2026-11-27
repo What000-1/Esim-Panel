@@ -18,6 +18,9 @@ const flags = await readFile(
 const phoneCards = (
   await readFile(new URL("../shared/phone-cards.js", import.meta.url), "utf8")
 ).replace(/^export /gm, "");
+const currencies = (
+  await readFile(new URL("../shared/currencies.js", import.meta.url), "utf8")
+).replace(/^export /gm, "");
 // Only compile handlers from our own HTML source, never from user data. The
 // served page has no inline JavaScript and can use a self-only script CSP.
 const handlers = [];
@@ -72,6 +75,8 @@ const assets = {
       flags +
       "\n" +
       phoneCards +
+      "\n" +
+      currencies +
       "\n" +
       frontend +
       "\n" +

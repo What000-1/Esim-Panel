@@ -7,6 +7,7 @@ import worker from "../worker/entry.js";
 import { todayString, addCalendarCycle } from "../shared/dates.js";
 import { fixture, sample } from "./helpers.mjs";
 import { PHONE_CARDS } from "../shared/phone-cards.js";
+import { CURRENCY_CODES } from "../shared/currencies.js";
 async function browser(t) {
   const dom = new JSDOM(assets["/"].body, {
     url: "https://panel.invalid",
@@ -987,6 +988,132 @@ async function browserWithCards(t, cards = [sample]) {
   await page.w.fetchEsimData();
   return { ...page, f };
 }
+
+test("add/edit and manual renewal can search and save any currency in the ISO catalogue", async (t) => {
+  const { w, d, f, alerts } = await browserWithCards(t, []);
+  const select = d.getElementById("simRenewCurrency");
+  const search = d.querySelector('[aria-controls="simRenewCurrency"]');
+  const form = d.getElementById("addForm");
+  const searchFor = (input, value) => {
+    input.value = value;
+    input.dispatchEvent(new w.Event("input", { bubbles: true }));
+  };
+
+  w.openModal();
+  assert.equal(select.value, "");
+  assert.equal(CURRENCY_CODES.length, 176);
+  assert.deepEqual(CURRENCY_CODES, [...new Set(CURRENCY_CODES)].sort());
+  assert.deepEqual(
+    [...select.options].slice(1, -1).map((option) => option.value),
+    CURRENCY_CODES,
+  );
+  for (const code of [
+    "CNY", "IDR", "KPW", "KZT", "XAF", "XCD", "XCG", "XOF", "XPF", "ZWG",
+  ])
+    assert(select.querySelector(`option[value="${code}"]`));
+  assert.equal(
+    select.querySelector('option[value="XTS"], option[value="XXX"]'),
+    null,
+  );
+
+  searchFor(search, "加勒比盾");
+  assert.equal(select.options.length, 3);
+  assert.match(select.options[1].label, /XCG · 加勒比盾/);
+  assert.equal(select.value, "");
+  const enter = new w.KeyboardEvent("keydown", {
+    key: "Enter",
+    bubbles: true,
+    cancelable: true,
+  });
+  search.dispatchEvent(enter);
+  assert.equal(enter.defaultPrevented, true);
+  assert.equal(d.activeElement, select);
+
+  select.value = "XCG";
+  d.getElementById("simName").value = "Caribbean eSIM";
+  d.getElementById("simCycle").value = "1";
+  d.getElementById("simCycleUnit").value = "year";
+  d.getElementById("simExpire").value = addCalendarCycle(
+    todayString(),
+    1,
+    "year",
+  );
+  d.getElementById("simRenewCost").value = "7.25";
+  assert.equal(form.checkValidity(), true);
+  await w.submitForm({ preventDefault() {} });
+  const [card] = f.store.cards();
+  assert.equal(card.renewCurrency, "XCG");
+  assert.match(d.getElementById("cost-summary").textContent, /XCG 7\.25/);
+
+  w.openEditModal(card.id);
+  assert.equal(search.value, "");
+  searchFor(search, "ＲＭＢ");
+  assert.equal(select.value, "XCG", "filtering must keep the saved selection");
+  assert(select.querySelector('option[value="CNY"]'));
+  searchFor(search, "not-a-currency");
+  assert.match(
+    form.querySelector("[data-currency-status]").textContent,
+    /没有匹配/,
+  );
+  assert.equal(select.value, "XCG");
+  w.closeModal();
+
+  w.openRenewModal(card.id);
+  const renewSelect = d.getElementById("renewCurrencyInput");
+  assert.equal(renewSelect.value, "XCG");
+  searchFor(d.querySelector('[aria-controls="renewCurrencyInput"]'), "xof");
+  assert.match(renewSelect.querySelector('option[value="XOF"]').label, /西非法郎/);
+  renewSelect.value = "XOF";
+  d.getElementById("renewCostInput").value = "250";
+  await w.confirmRenew();
+  const [renewed] = f.store.cards();
+  assert.equal(renewed.renewCurrency, "XCG");
+  assert.equal(renewed.renewalHistory.at(-1).currency, "XOF");
+  assert.equal(renewed.renewalHistory.at(-1).cost, 250);
+  const summary = d.getElementById("cost-summary").textContent;
+  assert.match(summary, /已记录续期支出：XOF 250/);
+  assert.doesNotMatch(summary, /折合 CNY/);
+  assert.deepEqual(alerts, []);
+});
+
+test("currency pickers preserve existing custom codes and allow an unspecified currency", async (t) => {
+  const { w, d, f, alerts } = await browserWithCards(t, [
+    { ...sample, renewCost: 5, renewCurrency: "JEP" },
+  ]);
+  w.openEditModal(sample.id);
+  const select = d.getElementById("simRenewCurrency");
+  const custom = d.querySelector("#addForm [data-currency-custom]");
+  assert.match(select.selectedOptions[0].textContent, /自定义币种/);
+  assert.equal(custom.hidden, false);
+  assert.equal(custom.value, "JEP");
+  await w.submitForm({ preventDefault() {} });
+  assert.equal(f.store.cards()[0].renewCurrency, "JEP");
+
+  w.openRenewModal(sample.id);
+  const renewSelect = d.getElementById("renewCurrencyInput");
+  const renewCustom = d.querySelector("#renewCostBox [data-currency-custom]");
+  assert.equal(renewCustom.value, "JEP");
+  renewCustom.value = " ";
+  await w.confirmRenew();
+  assert.equal(f.store.cards()[0].renewalHistory.length, 0);
+  renewCustom.value = "gGp";
+  await w.confirmRenew();
+  assert.equal(f.store.cards()[0].renewalHistory.at(-1).currency, "GGP");
+
+  w.openRenewModal(sample.id);
+  renewSelect.value = "";
+  renewSelect.dispatchEvent(new w.Event("change", { bubbles: true }));
+  assert.equal(renewCustom.disabled, true);
+  await w.confirmRenew();
+  assert.equal(f.store.cards()[0].renewalHistory.at(-1).currency, undefined);
+  assert.match(d.getElementById("cost-summary").textContent, /未知币种 5/);
+
+  w.openModal();
+  assert.equal(select.value, "");
+  assert.equal(custom.hidden, true);
+  assert.equal(custom.value, "");
+  assert.deepEqual(alerts, []);
+});
 
 test("backup export requires a loaded snapshot but allows a known empty list", async (t) => {
   const { w, d } = await browser(t);

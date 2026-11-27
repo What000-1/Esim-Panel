@@ -844,30 +844,62 @@
             </div>
             <div>
               <label
+                for="simRenewCost"
                 class="block text-slate-700 dark:text-slate-200 text-xs font-bold mb-1.5"
                 >单次保号费用 (选填)</label
               >
-              <div class="flex gap-1.5">
-                <input
-                  type="number"
-                  id="simRenewCost"
-                  min="0"
-                  max="1000000"
-                  step="any"
-                  aria-label="单次保号费用"
-                  placeholder="金额"
-                  class="input-field min-w-0 flex-1 px-3 py-2 rounded-xl text-sm font-mono text-slate-900 dark:text-white placeholder-slate-400 placeholder:font-sans"
-                />
-                <input
-                  type="text"
-                  id="simRenewCurrency"
-                  maxlength="10"
-                  aria-label="费用币种"
-                  placeholder="币种"
-                  class="input-field w-20 px-2.5 py-2 rounded-xl text-sm font-mono uppercase text-slate-900 dark:text-white placeholder-slate-400 placeholder:font-sans"
-                />
-              </div>
+              <input
+                type="number"
+                id="simRenewCost"
+                min="0"
+                max="1000000"
+                step="any"
+                placeholder="金额"
+                class="input-field w-full px-3.5 py-2 rounded-xl text-sm font-mono text-slate-900 dark:text-white placeholder-slate-500 dark:placeholder-slate-400 placeholder:font-sans"
+              />
             </div>
+          </div>
+          <div data-currency-picker>
+            <label
+              for="simRenewCurrency"
+              class="block text-slate-700 dark:text-slate-200 text-xs font-bold mb-1.5"
+              >费用币种 (选填)</label
+            >
+            <div class="grid grid-cols-1 gap-2 sm:grid-cols-[2fr_3fr]">
+              <input
+                type="search"
+                data-currency-search
+                aria-label="搜索费用币种"
+                aria-controls="simRenewCurrency"
+                autocomplete="off"
+                placeholder="搜名称或代码"
+                class="input-field min-w-0 w-full px-3 py-2 rounded-xl text-sm text-slate-900 dark:text-white placeholder-slate-500 dark:placeholder-slate-400"
+              />
+              <select
+                id="simRenewCurrency"
+                class="input-field min-w-0 w-full px-3 py-2 rounded-xl text-sm text-slate-900 dark:text-white"
+              >
+                <option value="">未指定币种</option>
+              </select>
+            </div>
+            <p
+              data-currency-status
+              role="status"
+              class="mt-1 text-xs text-slate-600 dark:text-slate-300"
+            ></p>
+            <input
+              type="text"
+              data-currency-custom
+              aria-label="自定义费用币种"
+              placeholder="币种名称或代码，例如 CNH"
+              autocomplete="off"
+              maxlength="10"
+              pattern=".*\S.*"
+              required
+              disabled
+              hidden
+              class="input-field mt-2 w-full px-3 py-2 rounded-xl text-sm text-slate-900 dark:text-white placeholder-slate-500 dark:placeholder-slate-400"
+            />
           </div>
 
           <!-- 状态开关组 -->
@@ -986,7 +1018,7 @@
       class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4"
     >
       <div
-        class="glass-card modal-surface w-full max-w-sm rounded-3xl p-6 relative transition-all duration-200 transform scale-95 opacity-0"
+        class="glass-card modal-surface w-full max-w-sm rounded-3xl p-6 relative transition-all duration-200 transform scale-95 opacity-0 max-h-[90vh] overflow-y-auto"
         id="renewModalContent"
       >
         <button
@@ -1086,27 +1118,59 @@
 
         <div id="renewCostBox" class="mb-5">
           <label
+            for="renewCostInput"
             class="block text-slate-700 dark:text-slate-200 text-xs font-bold mb-1.5"
             >本次保号费用（选填，记入续期记录）</label
           >
-          <div class="flex gap-2">
-            <input
-              type="number"
-              id="renewCostInput"
-              min="0"
-              max="1000000"
-              step="any"
-              aria-label="本次保号费用"
-              placeholder="金额"
-              class="input-field min-w-0 flex-1 px-3 py-2 rounded-xl text-sm font-mono text-slate-900 dark:text-white placeholder-slate-400 placeholder:font-sans"
-            />
+          <input
+            type="number"
+            id="renewCostInput"
+            min="0"
+            max="1000000"
+            step="any"
+            placeholder="金额"
+            class="input-field w-full px-3 py-2 rounded-xl text-sm font-mono text-slate-900 dark:text-white placeholder-slate-500 dark:placeholder-slate-400 placeholder:font-sans"
+          />
+          <div class="mt-3" data-currency-picker>
+            <label
+              for="renewCurrencyInput"
+              class="block text-slate-700 dark:text-slate-200 text-xs font-bold mb-1.5"
+              >本次费用币种（选填）</label
+            >
+            <div class="grid grid-cols-1 gap-2 sm:grid-cols-[2fr_3fr]">
+              <input
+                type="search"
+                data-currency-search
+                aria-label="搜索本次费用币种"
+                aria-controls="renewCurrencyInput"
+                autocomplete="off"
+                placeholder="搜名称或代码"
+                class="input-field min-w-0 w-full px-3 py-2 rounded-xl text-sm text-slate-900 dark:text-white placeholder-slate-500 dark:placeholder-slate-400"
+              />
+              <select
+                id="renewCurrencyInput"
+                class="input-field min-w-0 w-full px-3 py-2 rounded-xl text-sm text-slate-900 dark:text-white"
+              >
+                <option value="">未指定币种</option>
+              </select>
+            </div>
+            <p
+              data-currency-status
+              role="status"
+              class="mt-1 text-xs text-slate-600 dark:text-slate-300"
+            ></p>
             <input
               type="text"
-              id="renewCurrencyInput"
+              data-currency-custom
+              aria-label="自定义本次费用币种"
+              placeholder="币种名称或代码，例如 CNH"
+              autocomplete="off"
               maxlength="10"
-              aria-label="本次费用币种"
-              placeholder="币种"
-              class="input-field w-20 px-2.5 py-2 rounded-xl text-sm font-mono uppercase text-slate-900 dark:text-white placeholder-slate-400 placeholder:font-sans"
+              pattern=".*\S.*"
+              required
+              disabled
+              hidden
+              class="input-field mt-2 w-full px-3 py-2 rounded-xl text-sm text-slate-900 dark:text-white placeholder-slate-500 dark:placeholder-slate-400"
             />
           </div>
         </div>
